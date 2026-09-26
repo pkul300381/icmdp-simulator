@@ -1,0 +1,1602 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>ICMDP Simulator — Language-to-Admissibility Architecture</title>
+<style>
+  :root {
+    --bg:         #0d1117;
+    --bg2:        #161b22;
+    --bg3:        #21262d;
+    --border:     #30363d;
+    --text:       #e6edf3;
+    --text2:      #8b949e;
+    --text3:      #6e7681;
+    --blue:       #58a6ff;
+    --blue-dim:   #1f3a5f;
+    --green:      #3fb950;
+    --green-dim:  #1a3a24;
+    --amber:      #d29922;
+    --amber-dim:  #3a2d10;
+    --red:        #f85149;
+    --red-dim:    #3d1b1b;
+    --purple:     #bc8cff;
+    --purple-dim: #321f47;
+    --mono:       'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace;
+    --sans:       -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Inter', system-ui, sans-serif;
+    --radius:     6px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; background: var(--bg); color: var(--text); font-family: var(--sans); font-size: 13px; line-height: 1.5; }
+
+  /* Layout */
+  .app { display: grid; grid-template-columns: 340px 1fr; grid-template-rows: 52px 1fr; height: 100vh; overflow: hidden; }
+  .header { grid-column: 1/-1; display: flex; align-items: center; gap: 14px; padding: 0 20px; background: var(--bg2); border-bottom: 1px solid var(--border); }
+  .header h1 { font-size: 15px; font-weight: 600; letter-spacing: 0.02em; display: flex; align-items: center; gap: 8px; }
+  .header .paper-badge { font-size: 10px; background: var(--blue-dim); color: var(--blue); padding: 2px 7px; border-radius: 12px; font-weight: 500; font-family: var(--mono); }
+  .header .subtitle { font-size: 12px; color: var(--text2); font-family: var(--mono); }
+  .header-actions { margin-left: auto; display: flex; align-items: center; gap: 10px; }
+  .header .status-pill { font-size: 11px; font-family: var(--mono); padding: 3px 12px; border-radius: 20px; font-weight: 600; }
+  .status-IDLE   { background: var(--bg3); color: var(--text2); border: 1px solid var(--border); }
+  .status-HOLD   { background: var(--amber-dim); color: var(--amber); border: 1px solid var(--amber); }
+  .status-ACTIVE { background: var(--green-dim); color: var(--green); border: 1px solid var(--green); }
+
+  .sidebar { background: var(--bg2); border-right: 1px solid var(--border); overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 16px; }
+  .main { overflow-y: auto; padding: 20px; display: flex; flex-direction: column; gap: 18px; }
+
+  /* Sections */
+  .section { background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+  .section-header { padding: 10px 14px; background: var(--bg3); border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 8px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text2); }
+  .section-header .badge { font-size: 10px; padding: 2px 6px; border-radius: 4px; background: var(--blue-dim); color: var(--blue); font-family: var(--mono); }
+  .section-body { padding: 14px; }
+
+  /* Preset row */
+  .preset-row { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 12px; }
+  .btn-preset { padding: 3px 8px; font-size: 10.5px; border-radius: 4px; background: var(--bg3); color: var(--text2); border: 1px solid var(--border); cursor: pointer; transition: all 0.15s; font-family: var(--mono); }
+  .btn-preset:hover { background: var(--border); color: var(--text); border-color: var(--blue); }
+
+  /* State fields */
+  .field-row { display: flex; flex-direction: column; gap: 4px; margin-bottom: 11px; }
+  .field-row:last-child { margin-bottom: 0; }
+  .field-label { font-size: 11px; color: var(--text2); font-family: var(--mono); display: flex; justify-content: space-between; }
+  .field-label .field-val { color: var(--blue); font-weight: 600; }
+  select, input[type=range], input[type=text], input[type=password] { width: 100%; background: var(--bg3); border: 1px solid var(--border); color: var(--text); border-radius: 4px; }
+  select { padding: 5px 8px; font-size: 12px; }
+  input[type=range] { accent-color: var(--blue); }
+
+  /* Intent input */
+  .intent-box { width: 100%; background: var(--bg3); border: 1px solid var(--border); color: var(--text); border-radius: 4px; padding: 10px; font-size: 13px; font-family: var(--sans); resize: vertical; min-height: 72px; }
+  .intent-box:focus { outline: none; border-color: var(--blue); }
+
+  /* Buttons */
+  .btn-row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; align-items: center; }
+  .btn { padding: 6px 13px; border-radius: 4px; border: none; cursor: pointer; font-size: 12px; font-weight: 500; transition: opacity 0.15s, background 0.15s; display: inline-flex; align-items: center; gap: 6px; }
+  .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  .btn-primary  { background: var(--blue); color: #0d1117; font-weight: 600; }
+  .btn-primary:hover:not(:disabled) { background: #79b8ff; }
+  .btn-success  { background: var(--green); color: #0d1117; font-weight: 600; }
+  .btn-success:hover:not(:disabled) { background: #56d364; }
+  .btn-warning  { background: var(--amber); color: #0d1117; font-weight: 600; }
+  .btn-warning:hover:not(:disabled) { background: #e3b341; }
+  .btn-ghost    { background: var(--bg3); color: var(--text); border: 1px solid var(--border); }
+  .btn-ghost:hover:not(:disabled) { background: var(--border); }
+  .btn-danger   { background: var(--red); color: #fff; }
+  .btn-sm       { padding: 3px 8px; font-size: 11px; }
+
+  /* Lifecycle pipeline display */
+  .pipeline { display: flex; gap: 0; align-items: stretch; border: 1px solid var(--border); border-radius: 4px; overflow: hidden; background: var(--bg); }
+  .pipeline-step { flex: 1; padding: 8px 10px; border-right: 1px solid var(--border); }
+  .pipeline-step:last-child { border-right: none; }
+  .pipeline-step .step-label { font-size: 9.5px; font-family: var(--mono); text-transform: uppercase; letter-spacing: 0.06em; color: var(--text3); margin-bottom: 2px; }
+  .pipeline-step .step-status { font-size: 11px; font-weight: 600; }
+  .step-pending  { color: var(--text3); }
+  .step-running  { color: var(--amber); }
+  .step-ok       { color: var(--green); }
+  .step-error    { color: var(--red); }
+  .step-hold     { color: var(--amber); }
+
+  /* Code / JSON display */
+  .code-block { background: var(--bg); border: 1px solid var(--border); border-radius: 4px; padding: 10px; font-family: var(--mono); font-size: 11.5px; line-height: 1.5; overflow-x: auto; white-space: pre-wrap; word-break: break-word; color: var(--text); max-height: 180px; overflow-y: auto; }
+
+  /* Admissible set display */
+  .action-pills { display: flex; flex-wrap: wrap; gap: 6px; }
+  .action-pill { padding: 4px 10px; border-radius: 20px; font-size: 11.5px; font-family: var(--mono); font-weight: 500; display: inline-flex; align-items: center; gap: 5px; }
+  .pill-admissible  { background: var(--green-dim); color: var(--green); border: 1px solid var(--green); }
+  .pill-excluded    { background: var(--red-dim);   color: var(--red);   border: 1px solid var(--red); text-decoration: line-through; opacity: 0.7; }
+  .pill-unavailable { background: var(--bg3); color: var(--text3); border: 1px solid var(--border); opacity: 0.45; }
+
+  /* Tables */
+  .v-table, .q-table { width: 100%; border-collapse: collapse; font-size: 11.5px; font-family: var(--mono); }
+  .v-table th, .q-table th { background: var(--bg3); padding: 6px 10px; text-align: left; border-bottom: 1px solid var(--border); color: var(--text2); font-size: 10.5px; text-transform: uppercase; }
+  .v-table td, .q-table td { padding: 5px 10px; border-bottom: 1px solid var(--border); }
+  .v-table tr:last-child td, .q-table tr:last-child td { border-bottom: none; }
+  .v-table .v-val { color: var(--blue); font-weight: 600; }
+  .v-table .v-action { color: var(--green); }
+  .v-table .v-infeasible { color: var(--red); opacity: 0.6; }
+  .q-best { font-weight: 700; color: var(--green); background: rgba(63, 185, 80, 0.08); }
+  .q-excluded { color: var(--red); text-decoration: line-through; opacity: 0.55; }
+  .q-unavailable { color: var(--text3); opacity: 0.4; }
+
+  /* Audit trace */
+  .trace-container { max-height: 380px; overflow-y: auto; border-top: 1px solid var(--border); }
+  .trace-entry { padding: 9px 12px; border-bottom: 1px solid var(--border); display: grid; grid-template-columns: 32px 1fr; gap: 8px; align-items: start; }
+  .trace-entry:last-child { border-bottom: none; }
+  .trace-step { font-family: var(--mono); font-size: 11px; color: var(--text3); padding-top: 2px; }
+  .trace-event { font-size: 12px; font-weight: 600; display: flex; align-items: center; gap: 6px; }
+  .trace-event.ok       { color: var(--green); }
+  .trace-event.filtered { color: var(--amber); }
+  .trace-event.hold     { color: var(--red); }
+  .trace-event.terminal { color: var(--purple); }
+  .trace-detail { font-size: 11px; color: var(--text2); font-family: var(--mono); margin-top: 3px; line-height: 1.5; }
+  .trace-summary-bar { display: flex; gap: 14px; padding: 8px 12px; background: var(--bg3); border-bottom: 1px solid var(--border); font-size: 11px; font-family: var(--mono); }
+  .trace-summary-bar span { color: var(--text); font-weight: 600; }
+
+  /* Example 5.1 */
+  .ex51-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  .ex51-card { background: var(--bg3); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px; }
+  .ex51-card h4 { font-size: 12px; margin-bottom: 10px; font-weight: 600; }
+  .ex51-row { display: flex; justify-content: space-between; font-size: 11.5px; font-family: var(--mono); padding: 4px 0; border-bottom: 1px solid var(--border); }
+  .ex51-row:last-child { border-bottom: none; }
+  .ex51-return { font-size: 20px; font-weight: 700; margin-top: 10px; font-family: var(--mono); }
+
+  /* Timescale legend */
+  .timescale-bar { display: flex; gap: 0; border-radius: 4px; overflow: hidden; }
+  .ts-slow   { background: var(--blue-dim);  color: var(--blue);  padding: 6px 12px; font-size: 10.5px; font-family: var(--mono); flex: 2; }
+  .ts-medium { background: var(--green-dim); color: var(--green); padding: 6px 12px; font-size: 10.5px; font-family: var(--mono); flex: 1.5; }
+  .ts-fast   { background: var(--amber-dim); color: var(--amber); padding: 6px 12px; font-size: 10.5px; font-family: var(--mono); flex: 1.2; }
+
+  /* Error/info boxes */
+  .msg { padding: 8px 12px; border-radius: 4px; font-size: 12px; margin-top: 8px; }
+  .msg-error { background: var(--red-dim);   color: var(--red);   border: 1px solid var(--red); }
+  .msg-ok    { background: var(--green-dim); color: var(--green); border: 1px solid var(--green); }
+  .msg-info  { background: var(--blue-dim);  color: var(--blue);  border: 1px solid var(--blue); }
+  .msg-warn  { background: var(--amber-dim); color: var(--amber); border: 1px solid var(--amber); }
+
+  .hidden { display: none !important; }
+  .spinner { display: inline-block; width: 11px; height: 11px; border: 2px solid var(--border); border-top-color: var(--blue); border-radius: 50%; animation: spin 0.7s linear infinite; vertical-align: middle; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .tabs { display: flex; border-bottom: 1px solid var(--border); }
+  .tab { padding: 7px 14px; font-size: 11.5px; cursor: pointer; color: var(--text2); border-bottom: 2px solid transparent; margin-bottom: -1px; font-weight: 500; }
+  .tab.active { color: var(--blue); border-bottom-color: var(--blue); }
+  .tab-content { display: none; padding: 12px; }
+  .tab-content.active { display: block; }
+
+  .mode-indicator { font-size: 10px; font-family: var(--mono); padding: 2px 6px; border-radius: 4px; background: var(--blue-dim); color: var(--blue); border: 1px solid rgba(88, 166, 255, 0.3); }
+</style>
+</head>
+<body>
+<div class="app">
+
+  <!-- Header -->
+  <header class="header">
+    <div>
+      <h1>
+        ICMDP Simulator
+        <span class="paper-badge">Kulkarni &amp; Saini (2026)</span>
+      </h1>
+      <div class="subtitle">Intent-Constrained MDPs — Compiling User-Specified Intent into Planning-Aware Action Admissibility</div>
+    </div>
+    <div class="header-actions">
+      <span id="parserModeBadge" class="mode-indicator">Local Grammar Parser (offline)</span>
+      <div id="statusPill" class="status-pill status-IDLE">IDLE</div>
+    </div>
+  </header>
+
+  <!-- Sidebar: State + Settings -->
+  <aside class="sidebar">
+
+    <div class="section">
+      <div class="section-header">Environment State <span class="badge">s ∈ S</span></div>
+      <div class="section-body">
+        <div style="font-size:10.5px;color:var(--text3);margin-bottom:6px;text-transform:uppercase;font-family:var(--mono);">Scenarios</div>
+        <div class="preset-row">
+          <button class="btn-preset" onclick="loadScenario('sev1')">Sev1 Incident</button>
+          <button class="btn-preset" onclick="loadScenario('highload')">High Load</button>
+          <button class="btn-preset" onclick="loadScenario('deploying')">Deploying</button>
+          <button class="btn-preset" onclick="loadScenario('healthy')">Normal</button>
+        </div>
+
+        <div class="field-row">
+          <div class="field-label">severity <span class="field-val" id="v_severity">none</span></div>
+          <select id="f_severity" onchange="updateState()">
+            <option value="none">none</option>
+            <option value="sev2">sev2</option>
+            <option value="sev1">sev1</option>
+          </select>
+        </div>
+        <div class="field-row">
+          <div class="field-label">health <span class="field-val" id="v_health">healthy</span></div>
+          <select id="f_health" onchange="updateState()">
+            <option value="healthy">healthy</option>
+            <option value="degraded">degraded</option>
+            <option value="critical">critical</option>
+          </select>
+        </div>
+        <div class="field-row">
+          <div class="field-label">cpu % <span class="field-val" id="v_cpu">50</span></div>
+          <input type="range" id="f_cpu" min="0" max="100" value="50" oninput="updateState()">
+        </div>
+        <div class="field-row">
+          <div class="field-label">latency ms <span class="field-val" id="v_latency">300</span></div>
+          <input type="range" id="f_latency" min="0" max="5000" step="50" value="300" oninput="updateState()">
+        </div>
+        <div class="field-row">
+          <div class="field-label">replicas <span class="field-val" id="v_replicas">3</span></div>
+          <input type="range" id="f_replicas" min="1" max="10" value="3" oninput="updateState()">
+        </div>
+        <div class="field-row">
+          <div class="field-label">deploy_status <span class="field-val" id="v_deploy_status">idle</span></div>
+          <select id="f_deploy_status" onchange="updateState()">
+            <option value="idle">idle</option>
+            <option value="in_progress">in_progress</option>
+          </select>
+        </div>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-header">Admissible Set <span class="badge">A_I(s) = A₀(s) ∩ I(s)</span></div>
+      <div class="section-body">
+        <div id="actionPills" class="action-pills">—</div>
+        <div style="margin-top:8px;font-size:11px;color:var(--text3);font-family:var(--mono);" id="admissibleCount"></div>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-header">Settings &amp; Parser Config</div>
+      <div class="section-body">
+        <div class="field-row">
+          <div class="field-label">Parser Mode</div>
+          <select id="parserModeSelect" onchange="updateParserMode()">
+            <option value="local">Local Deterministic Grammar (No key)</option>
+            <option value="anthropic">Anthropic Claude API (Requires key)</option>
+          </select>
+        </div>
+        <div class="field-row" id="apiKeyRow" style="display:none;">
+          <div class="field-label">Anthropic API Key</div>
+          <input class="api-key-input" type="password" id="apiKey" placeholder="sk-ant-..." oninput="updateParserMode()">
+        </div>
+        <div class="field-row" id="modelSelectRow" style="display:none;">
+          <div class="field-label">Model</div>
+          <select id="claudeModel">
+            <option value="claude-3-7-sonnet-20250219">claude-3-7-sonnet-20250219</option>
+            <option value="claude-3-5-sonnet-20241022">claude-3-5-sonnet-20241022</option>
+            <option value="claude-3-5-haiku-20241022">claude-3-5-haiku-20241022</option>
+          </select>
+        </div>
+        <div class="field-row" style="margin-top:8px;">
+          <div class="field-label">γ (discount) <span class="field-val" id="v_gamma">0.9</span></div>
+          <input type="range" id="f_gamma" min="0.5" max="0.99" step="0.01" value="0.9" oninput="updateGamma()">
+        </div>
+        <div class="field-row">
+          <div class="field-label">Max VI iterations <span class="field-val" id="v_maxiter">60</span></div>
+          <input type="range" id="f_maxiter" min="10" max="200" step="5" value="60" oninput="updateMaxIter()">
+        </div>
+      </div>
+    </div>
+
+  </aside>
+
+  <!-- Main panel -->
+  <main class="main">
+
+    <!-- Timescale legend -->
+    <div class="timescale-bar">
+      <div class="ts-slow">SLOW — parse once · validate once · compile once (trusted boundary)</div>
+      <div class="ts-medium">MEDIUM — planning · V* over A_I(s)</div>
+      <div class="ts-fast">FAST — runtime gate · execute · audit trace</div>
+    </div>
+
+    <!-- Step 1: Intent input + parse -->
+    <div class="section">
+      <div class="section-header">Step 1 — Natural Language Intent <span class="badge">Slow: fφ → vx → c</span></div>
+      <div class="section-body">
+        <textarea class="intent-box" id="intentInput" placeholder='e.g. "Do not deploy while a Severity-1 production incident is active"'></textarea>
+        
+        <div class="btn-row">
+          <button class="btn btn-primary" onclick="parseAndCompileIntent()">Parse Intent</button>
+          <button class="btn btn-ghost" onclick="loadExample(1)">Example 1 — Sev1 Deploy</button>
+          <button class="btn btn-ghost" onclick="loadExample(2)">Example 2 — Freeze Deploy</button>
+          <button class="btn btn-ghost" onclick="loadExample(3)">Example 3 — CPU/Latency</button>
+          <button class="btn btn-ghost" onclick="loadExample(4)" title="Demonstrates Def 3.2 empty set HOLD">Failure: Over-tightening</button>
+          <button class="btn btn-ghost" onclick="loadExample(5)" title="Demonstrates Validator ⊥ rejection">Failure: Under-specified</button>
+        </div>
+
+        <!-- Pipeline status -->
+        <div class="pipeline" style="margin-top:14px;">
+          <div class="pipeline-step">
+            <div class="step-label">1. Parser fφ</div>
+            <div class="step-status step-pending" id="ps_parse">—</div>
+          </div>
+          <div class="pipeline-step">
+            <div class="step-label">2. Validator vx</div>
+            <div class="step-status step-pending" id="ps_validate">—</div>
+          </div>
+          <div class="pipeline-step">
+            <div class="step-label">3. Compiler c</div>
+            <div class="step-status step-pending" id="ps_compile">—</div>
+          </div>
+          <div class="pipeline-step">
+            <div class="step-label">4. Feasibility</div>
+            <div class="step-status step-pending" id="ps_feasibility">—</div>
+          </div>
+          <div class="pipeline-step">
+            <div class="step-label">5. Activation</div>
+            <div class="step-status step-pending" id="ps_activation">—</div>
+          </div>
+        </div>
+        <div id="parseMessages"></div>
+      </div>
+
+      <!-- Parsed spec display -->
+      <div id="parsedSpecSection" class="hidden" style="border-top:1px solid var(--border);">
+        <div class="tabs">
+          <div class="tab active" onclick="switchTab('raw')">Raw Spec g_raw</div>
+          <div class="tab" onclick="switchTab('validated')">Validated AST g_val</div>
+        </div>
+        <div id="tab_raw" class="tab-content active">
+          <div class="code-block" id="rawSpecDisplay"></div>
+        </div>
+        <div id="tab_validated" class="tab-content">
+          <div class="code-block" id="validatedSpecDisplay"></div>
+        </div>
+        <div style="padding:10px 14px; background:var(--bg3); display:flex; align-items:center; justify-content:space-between;">
+          <div style="font-size:11.5px; color:var(--text2);">
+            Compiled rule: <span style="font-family:var(--mono); color:var(--blue);" id="compiledRuleDesc">c(g)(s) = A \ { a : eval(φ, s) }</span>
+          </div>
+          <button class="btn btn-success" id="activateBtn" onclick="activateRuleFromUI()" disabled>Compile &amp; Activate Rule</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Step 2: Planning -->
+    <div class="section">
+      <div class="section-header">Step 2 — Constraint-Aware Planning <span class="badge">Medium: V* · π*_I</span></div>
+      <div class="section-body">
+        <div style="font-size:12px;color:var(--text2);margin-bottom:10px;">
+          Value iteration over admissible actions <span style="font-family:var(--mono);color:var(--blue)">A_I(s) = A₀(s) ∩ I(s)</span> (Paper Eq. 19).
+        </div>
+        <div class="btn-row">
+          <button class="btn btn-primary" id="planBtn" onclick="runPlanning()" disabled>Run Value Iteration</button>
+          <button class="btn btn-ghost" onclick="toggleExample51()">Demo Example 5.1 (Upstream vs Gate)</button>
+        </div>
+        <div id="planMessages"></div>
+        <div id="planningResults" class="hidden" style="margin-top:14px;">
+          <div style="font-size:11px;font-family:var(--mono);color:var(--text2);margin-bottom:8px;" id="planStats"></div>
+          <div style="font-size:12px;font-weight:600;margin-bottom:6px;color:var(--text2);">Q-values at current state s:</div>
+          <table class="q-table" id="qTable"></table>
+          <div style="font-size:12px;font-weight:600;margin:12px 0 6px;color:var(--text2);">V* sample across discrete state space:</div>
+          <table class="v-table" id="vTable"></table>
+        </div>
+      </div>
+    </div>
+
+    <!-- Step 3: Execute episode -->
+    <div class="section">
+      <div class="section-header">Step 3 — Runtime Gate &amp; Audit Trace <span class="badge">Fast: Algorithm 1</span></div>
+      <div class="section-body">
+        <div style="font-size:12px;color:var(--text2);margin-bottom:10px;">
+          Execute an episode starting from current state. The runtime gate enforces active rule <span style="font-family:var(--mono);color:var(--blue)">I(s_t)</span> at every decision step.
+        </div>
+        <div class="btn-row">
+          <button class="btn btn-success" id="runBtn" onclick="runEpisode(false)" disabled>Run Episode (Constraint-Aware)</button>
+          <button class="btn btn-warning" id="runUncBtn" onclick="runEpisode(true)" disabled>Run Episode (Unconstrained Proposal + Gate)</button>
+          <button class="btn btn-ghost" id="stepBtn" onclick="stepEpisode()" disabled>Step One Action</button>
+          <button class="btn btn-ghost" onclick="clearTrace()">Clear Trace</button>
+        </div>
+      </div>
+
+      <!-- Trace stats summary -->
+      <div id="traceSummaryBar" class="trace-summary-bar" style="display:none;">
+        <div>Mode: <span id="ts_mode">—</span></div>
+        <div>Discounted Return: <span id="ts_return">—</span></div>
+        <div>Steps: <span id="ts_steps">—</span></div>
+        <div>Gate Interventions: <span id="ts_filtered" style="color:var(--amber);">0</span></div>
+        <div>Holds: <span id="ts_holds" style="color:var(--red);">0</span></div>
+      </div>
+
+      <div class="trace-container" id="auditTrace">
+        <div style="padding:14px;color:var(--text3);font-size:12px;">No episode run yet. Activate a rule and click Run Episode.</div>
+      </div>
+    </div>
+
+    <!-- Example 5.1 Card -->
+    <div class="section" id="ex51Section" style="display:none;">
+      <div class="section-header">Example 5.1 — Why Runtime Filtering Alone Is Insufficient <span class="badge">Paper §5.1</span></div>
+      <div class="section-body">
+        <div class="ex51-grid" id="ex51Grid"></div>
+        <div style="margin-top:12px;padding:12px;background:var(--bg);border:1px solid var(--border);border-radius:4px;font-size:12px;color:var(--text2);line-height:1.6;" id="ex51Insight"></div>
+      </div>
+    </div>
+
+    <!-- Rule history -->
+    <div class="section">
+      <div class="section-header">Versioned Rule Store <span class="badge">§4.4</span></div>
+      <div class="section-body" id="ruleHistory">
+        <div style="color:var(--text3);font-size:12px;">No rules activated yet.</div>
+      </div>
+    </div>
+
+  </main>
+</div>
+
+<script>
+// ============================================================
+// ICMDP Simulator Engine (Self-Contained & Complete)
+// Implements Kulkarni & Saini (2026) Architecture
+// ============================================================
+
+'use strict';
+
+// ------------------------------------------------------------
+// 1. MDP Environment (Paper Example 3.1)
+// ------------------------------------------------------------
+const STATE_SCHEMA = {
+  severity:      { type: 'enum',    values: ['none', 'sev2', 'sev1'] },
+  health:        { type: 'enum',    values: ['healthy', 'degraded', 'critical'] },
+  cpu:           { type: 'number',  unit: 'percent', min: 0, max: 100 },
+  latency:       { type: 'number',  unit: 'ms',      min: 0, max: 5000 },
+  replicas:      { type: 'integer', min: 1, max: 10 },
+  deploy_status: { type: 'enum',    values: ['idle', 'in_progress'] },
+};
+const ACTIONS = ['Deploy', 'Rollback', 'Restart', 'ScaleOut', 'ScaleIn', 'DoNothing'];
+let GAMMA = 0.9;
+let MAX_ITER = 60;
+
+function baselineAvailable(s) {
+  const a = new Set(ACTIONS);
+  if (s.deploy_status === 'in_progress') a.delete('Deploy');
+  if (s.deploy_status === 'idle')        a.delete('Rollback');
+  if (s.replicas >= 10)                  a.delete('ScaleOut');
+  if (s.replicas <= 1)                   a.delete('ScaleIn');
+  return a;
+}
+
+function rewardFn(s, a) {
+  const penalties = { none: 0, sev2: -10, sev1: -30 };
+  const healthPenalties = { healthy: 0, degraded: -5, critical: -20 };
+  const latencyPenalty = Math.min(s.latency / 500, 10);
+  const cpuPenalty = s.cpu > 80 ? (s.cpu - 80) * 0.2 : 0;
+  const base = (penalties[s.severity] || 0) + (healthPenalties[s.health] || 0) - latencyPenalty - cpuPenalty;
+
+  const actionRewards = {
+    Deploy:    s.health === 'healthy' ? 8 : -5,
+    Rollback:  s.severity !== 'none' ? 12 : -2,
+    Restart:   s.health !== 'healthy' ? 6 : -1,
+    ScaleOut:  s.cpu > 70 ? 7 : -3,
+    ScaleIn:   s.replicas > 3 && s.cpu < 40 ? 3 : -1,
+    DoNothing: 0,
+  };
+  return base + (actionRewards[a] || 0);
+}
+
+function transitionFn(s, a) {
+  let next = { ...s };
+  if (a === 'Deploy') {
+    next.deploy_status = 'in_progress';
+    return [
+      { state: { ...next, health: 'healthy',  deploy_status: 'idle', severity: 'none' }, prob: 0.7 },
+      { state: { ...next, health: 'degraded', deploy_status: 'idle', severity: 'sev2' }, prob: 0.2 },
+      { state: { ...next, health: 'critical', deploy_status: 'idle', severity: 'sev1' }, prob: 0.1 },
+    ];
+  }
+  if (a === 'Rollback') {
+    return [
+      { state: { ...s, health: 'healthy',  severity: 'none', deploy_status: 'idle' }, prob: 0.85 },
+      { state: { ...s, health: 'degraded', severity: 'sev2', deploy_status: 'idle' }, prob: 0.15 },
+    ];
+  }
+  if (a === 'Restart') {
+    return [
+      { state: { ...s, health: 'healthy',  cpu: 30, latency: 150 }, prob: 0.75 },
+      { state: { ...s, health: 'degraded', cpu: 60, latency: 400 }, prob: 0.25 },
+    ];
+  }
+  if (a === 'ScaleOut') {
+    const r = Math.min(s.replicas + 1, 10);
+    return [{ state: { ...s, replicas: r, cpu: Math.max(s.cpu - 15, 10) }, prob: 1.0 }];
+  }
+  if (a === 'ScaleIn') {
+    const r = Math.max(s.replicas - 1, 1);
+    return [{ state: { ...s, replicas: r, cpu: Math.min(s.cpu + 20, 100) }, prob: 1.0 }];
+  }
+  // DoNothing
+  return [
+    { state: { ...s }, prob: 0.6 },
+    { state: { ...s, cpu: Math.min(s.cpu + 10, 100), latency: Math.min(s.latency + 100, 5000) }, prob: 0.3 },
+    { state: { ...s, severity: s.severity === 'none' ? 'sev2' : s.severity, health: s.health === 'healthy' ? 'degraded' : s.health }, prob: 0.1 },
+  ];
+}
+
+function stateKey(s) {
+  return `${s.severity}|${s.health}|${s.cpu}|${s.latency}|${s.replicas}|${s.deploy_status}`;
+}
+
+const cpuGrid = [20, 50, 70, 85, 95];
+const latGrid = [100, 300, 800, 2000];
+const repGrid = [1, 2, 3, 5, 8, 10];
+
+function snapToGrid(s) {
+  const snapCpu = cpuGrid.reduce((a, b) => Math.abs(b - s.cpu) < Math.abs(a - s.cpu) ? b : a);
+  const snapLat = latGrid.reduce((a, b) => Math.abs(b - s.latency) < Math.abs(a - s.latency) ? b : a);
+  const snapRep = repGrid.reduce((a, b) => Math.abs(b - s.replicas) < Math.abs(a - s.replicas) ? b : a);
+  return {
+    severity:      s.severity,
+    health:        s.health,
+    cpu:           snapCpu,
+    latency:       snapLat,
+    replicas:      snapRep,
+    deploy_status: s.deploy_status,
+  };
+}
+
+let cachedStates = null;
+function enumerateStates() {
+  if (cachedStates) return cachedStates;
+  const states = [];
+  for (const severity of ['none', 'sev2', 'sev1']) {
+    for (const health of ['healthy', 'degraded', 'critical']) {
+      for (const cpu of cpuGrid) {
+        for (const latency of latGrid) {
+          for (const replicas of repGrid) {
+            for (const deploy_status of ['idle', 'in_progress']) {
+              states.push({ severity, health, cpu, latency, replicas, deploy_status });
+            }
+          }
+        }
+      }
+    }
+  }
+  cachedStates = states;
+  return states;
+}
+
+// ------------------------------------------------------------
+// 2. Deterministic Intent Validator and Compiler (Paper §4.2)
+// ------------------------------------------------------------
+const ADMITTED_OPS = {
+  enum:    ['=', '!='],
+  number:  ['=', '!=', '<', '<=', '>', '>='],
+  integer: ['=', '!=', '<', '<=', '>', '>='],
+};
+
+function validate(rawSpec, schema, actions) {
+  if (!rawSpec || !Array.isArray(rawSpec.prohibitions)) {
+    return { valid: false, reason: 'Specification must have a "prohibitions" array.', field: 'root' };
+  }
+  const validated = [];
+  for (let i = 0; i < rawSpec.prohibitions.length; i++) {
+    const r = rawSpec.prohibitions[i];
+    if (!r.action) return { valid: false, reason: `Rule ${i}: missing "action" field.`, field: 'action' };
+    const match = actions.find(a => a.toLowerCase() === r.action.toLowerCase());
+    if (!match) return { valid: false, reason: `Rule ${i}: unknown action "${r.action}". Known: ${actions.join(', ')}.`, field: 'action' };
+    if (!r.condition) return { valid: false, reason: `Rule ${i}: missing "condition".`, field: 'condition' };
+
+    const condRes = validateCondition(r.condition, schema, i);
+    if (!condRes.valid) return condRes;
+    validated.push({ action: match, condition: condRes.ast });
+  }
+  return { valid: true, spec: { prohibitions: validated } };
+}
+
+function validateCondition(cond, schema, ruleIdx) {
+  if (typeof cond === 'string') return validateAtom(cond.trim(), schema, ruleIdx);
+  if (typeof cond === 'object' && cond !== null) {
+    if (cond.not !== undefined) {
+      const inner = validateCondition(cond.not, schema, ruleIdx);
+      if (!inner.valid) return inner;
+      return { valid: true, ast: { type: 'not', child: inner.ast } };
+    }
+    if (cond.and !== undefined) {
+      if (!Array.isArray(cond.and) || cond.and.length < 2) {
+        return { valid: false, reason: `Rule ${ruleIdx}: "and" requires an array of ≥2 conditions.`, field: 'condition' };
+      }
+      const children = [];
+      for (const sub of cond.and) {
+        const r = validateCondition(sub, schema, ruleIdx);
+        if (!r.valid) return r;
+        children.push(r.ast);
+      }
+      return { valid: true, ast: { type: 'and', children } };
+    }
+    if (cond.or !== undefined) {
+      if (!Array.isArray(cond.or) || cond.or.length < 2) {
+        return { valid: false, reason: `Rule ${ruleIdx}: "or" requires an array of ≥2 conditions.`, field: 'condition' };
+      }
+      const children = [];
+      for (const sub of cond.or) {
+        const r = validateCondition(sub, schema, ruleIdx);
+        if (!r.valid) return r;
+        children.push(r.ast);
+      }
+      return { valid: true, ast: { type: 'or', children } };
+    }
+    if (cond.field !== undefined) return validateAtomObj(cond, schema, ruleIdx);
+  }
+  return { valid: false, reason: `Rule ${ruleIdx}: unrecognised condition format.`, field: 'condition' };
+}
+
+function validateAtom(str, schema, ruleIdx) {
+  const ops = ['<=', '>=', '!=', '<', '>', '='];
+  let matched = null;
+  for (const op of ops) {
+    const idx = str.indexOf(op);
+    if (idx > 0) {
+      matched = { field: str.slice(0, idx).trim(), op, value: str.slice(idx + op.length).trim() };
+      break;
+    }
+  }
+  if (!matched) return { valid: false, reason: `Rule ${ruleIdx}: cannot parse condition atom "${str}". Expected "field op value".`, field: 'condition' };
+  return validateAtomObj(matched, schema, ruleIdx);
+}
+
+function validateAtomObj({ field, op, value }, schema, ruleIdx) {
+  const fieldDef = schema[field];
+  if (!fieldDef) return { valid: false, reason: `Rule ${ruleIdx}: unknown state field "${field}". Known: ${Object.keys(schema).join(', ')}.`, field };
+  const admitted = ADMITTED_OPS[fieldDef.type] || [];
+  if (!admitted.includes(op)) return { valid: false, reason: `Rule ${ruleIdx}: operator "${op}" not admitted for ${fieldDef.type} field "${field}". Admitted: ${admitted.join(', ')}.`, field };
+
+  let parsedVal = value;
+  if (fieldDef.type === 'enum') {
+    if (!fieldDef.values.includes(value)) {
+      return { valid: false, reason: `Rule ${ruleIdx}: value "${value}" not in enum for "${field}". Valid: ${fieldDef.values.join(', ')}.`, field };
+    }
+  } else {
+    parsedVal = Number(value);
+    if (isNaN(parsedVal)) {
+      return { valid: false, reason: `Rule ${ruleIdx}: value "${value}" is not numeric for field "${field}".`, field };
+    }
+  }
+  return { valid: true, ast: { type: 'atom', field, op, value: parsedVal } };
+}
+
+function compile(validatedSpec, allActions) {
+  const prohibitions = validatedSpec.prohibitions;
+  return function intentRule(s) {
+    const excluded = new Set();
+    for (const { action, condition } of prohibitions) {
+      if (evalCondition(condition, s)) {
+        excluded.add(action);
+      }
+    }
+    return new Set(allActions.filter(a => !excluded.has(a)));
+  };
+}
+
+function evalCondition(ast, s) {
+  if (ast.type === 'atom') {
+    const val = s[ast.field];
+    if (val === undefined) throw new Error(`ENFORCEMENT_FAILURE: field "${ast.field}" not in state.`);
+    switch (ast.op) {
+      case '=':  return val === ast.value;
+      case '!=': return val !== ast.value;
+      case '<':  return val <  ast.value;
+      case '<=': return val <= ast.value;
+      case '>':  return val >  ast.value;
+      case '>=': return val >= ast.value;
+      default:   return false;
+    }
+  }
+  if (ast.type === 'not') return !evalCondition(ast.child, s);
+  if (ast.type === 'and') return ast.children.every(c => evalCondition(c, s));
+  if (ast.type === 'or')  return ast.children.some(c => evalCondition(c, s));
+  return false;
+}
+
+function effectiveAdmissibleSet(s, baselineFn, intentRule) {
+  const A0 = baselineFn(s);
+  const I  = intentRule(s);
+  return new Set([...A0].filter(a => I.has(a)));
+}
+
+function checkFeasibility(states, intentRule) {
+  const violations = [];
+  for (const s of states) {
+    const AI = effectiveAdmissibleSet(s, baselineAvailable, intentRule);
+    if (AI.size === 0) violations.push(s);
+  }
+  return { feasible: violations.length === 0, violations };
+}
+
+// ------------------------------------------------------------
+// 3. Parser fφ (Anthropic API + Local Deterministic Fallback)
+// ------------------------------------------------------------
+function buildSystemPrompt() {
+  const schemaDesc = Object.entries(STATE_SCHEMA).map(([f, d]) => {
+    if (d.type === 'enum') return `  - ${f} (enum): ${d.values.join(', ')}`;
+    if (d.type === 'number') return `  - ${f} (number, ${d.unit}): ${d.min}–${d.max}`;
+    return `  - ${f} (integer): ${d.min}–${d.max}`;
+  }).join('\n');
+
+  return `You are an intent parser (fφ) in an Intent-Constrained MDP system for cloud operations.
+Your ONLY job: translate a natural-language instruction into a structured JSON specification.
+You do NOT enforce constraints. You PROPOSE. A deterministic validator will accept or reject.
+
+AVAILABLE ACTIONS: ${ACTIONS.join(', ')}
+STATE FIELDS:\n${schemaDesc}
+
+OUTPUT FORMAT: JSON with "prohibitions" array. Each item: {"action": "...", "condition": "..."}
+Condition can be: string atom "field op value", or object {"not":...}, {"and":[...]}, {"or":[...]}
+Operators: enum: = !=   number/integer: = != < <= > >=
+
+EXAMPLES:
+"Do not deploy while a Severity-1 production incident is active"
+→ {"prohibitions":[{"action":"Deploy","condition":"severity = sev1"}]}
+
+"Never scale in when CPU is above 70 percent or latency exceeds 800ms"
+→ {"prohibitions":[{"action":"ScaleIn","condition":{"or":["cpu > 70","latency > 800"]}}]}
+
+OUTPUT ONLY valid JSON. No markdown fences. No explanation. If ambiguous: {"error":"reason"}.`;
+}
+
+function localParseIntent(instruction) {
+  const norm = instruction.toLowerCase().trim();
+
+  // Failure Mode: Under-specification (Paper Table 1 / Def 4.1)
+  if (norm.includes('faster') || norm.includes('better') || norm.includes('optimize') || norm.includes('be safe') || norm.length < 6) {
+    return { success: false, error: 'Under-specified instruction: does not specify which actions to prohibit or grounded condition.' };
+  }
+
+  // Example 1: Sev1 deploy
+  if (norm.includes('sev1') || (norm.includes('severity') && (norm.includes('1') || norm.includes('one')))) {
+    if (norm.includes('deploy')) {
+      return { success: true, raw: { prohibitions: [{ action: 'Deploy', condition: 'severity = sev1' }] } };
+    }
+  }
+
+  // Example 2: Freeze deploy
+  if (norm.includes('freeze') && norm.includes('deploy')) {
+    return {
+      success: true,
+      raw: {
+        prohibitions: [
+          { action: 'Deploy', condition: { or: ['severity = none', 'severity = sev2', 'severity = sev1'] } }
+        ]
+      }
+    };
+  }
+
+  // Example 3: Never scale in when CPU > 70 or latency > 800
+  if (norm.includes('scale') && (norm.includes('in') || norm.includes('down')) && (norm.includes('cpu') || norm.includes('latency'))) {
+    return {
+      success: true,
+      raw: {
+        prohibitions: [
+          { action: 'ScaleIn', condition: { or: ['cpu > 70', 'latency > 800'] } }
+        ]
+      }
+    };
+  }
+
+  // Failure Mode: Over-tightening / Infeasible intent
+  if (norm.includes('prohibit all') || norm.includes('freeze all actions') || norm.includes('block everything') || norm.includes('over-tightening')) {
+    return {
+      success: true,
+      raw: {
+        prohibitions: ACTIONS.map(a => ({ action: a, condition: 'severity = none' }))
+      }
+    };
+  }
+
+  // Generic natural language pattern parsing:
+  // e.g., "Do not <action> when <field> <op> <value>"
+  for (const action of ACTIONS) {
+    if (norm.includes(action.toLowerCase())) {
+      for (const field of Object.keys(STATE_SCHEMA)) {
+        if (norm.includes(field)) {
+          const fieldDef = STATE_SCHEMA[field];
+          if (fieldDef.type === 'enum') {
+            for (const val of fieldDef.values) {
+              if (norm.includes(val)) {
+                return { success: true, raw: { prohibitions: [{ action, condition: `${field} = ${val}` }] } };
+              }
+            }
+          } else {
+            const numMatch = norm.match(/(\d+)/);
+            if (numMatch) {
+              let op = '=';
+              if (norm.includes('above') || norm.includes('exceed') || norm.includes('greater') || norm.includes('>')) op = '>';
+              else if (norm.includes('below') || norm.includes('under') || norm.includes('less') || norm.includes('<')) op = '<';
+              return { success: true, raw: { prohibitions: [{ action, condition: `${field} ${op} ${numMatch[1]}` }] } };
+            }
+          }
+        }
+      }
+    }
+  }
+
+  return {
+    success: false,
+    error: 'Could not parse instruction with local grammar. Switch parser mode to Anthropic Claude in Settings for full LLM parser support.'
+  };
+}
+
+async function parseWithAnthropic(instruction, apiKey, model) {
+  const systemPrompt = buildSystemPrompt();
+  const resp = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': apiKey,
+      'anthropic-version': '2023-06-01',
+      'anthropic-dangerous-direct-browser-access': 'true',
+    },
+    body: JSON.stringify({
+      model: model || 'claude-3-7-sonnet-20250219',
+      max_tokens: 1000,
+      system: systemPrompt,
+      messages: [{ role: 'user', content: `Instruction: "${instruction}"\n\nOutput the JSON specification:` }],
+    }),
+  });
+
+  if (!resp.ok) {
+    const err = await resp.json().catch(() => ({}));
+    throw new Error(`API ${resp.status}: ${err.error?.message || resp.statusText}`);
+  }
+
+  const data = await resp.json();
+  const text = data.content?.find(b => b.type === 'text')?.text?.trim()?.replace(/```json|```/g, '').trim();
+  if (!text) throw new Error('Empty response from LLM parser.');
+
+  const parsed = JSON.parse(text);
+  if (parsed.error) throw new Error(`Parser rejected: ${parsed.error}`);
+  return { success: true, raw: parsed };
+}
+
+// ------------------------------------------------------------
+// 4. Value Iteration Planner (Paper §5.1)
+// ------------------------------------------------------------
+let V_constrained = new Map();
+let policy_constrained = new Map();
+let V_unconstrained = new Map();
+let policy_unconstrained = new Map();
+let allStatesList = [];
+let planningConstrainedDone = false;
+let planningUnconstrainedDone = false;
+
+function runValueIterationFor(admissibleFn) {
+  const states = enumerateStates();
+  const V = new Map();
+  const policy = new Map();
+  for (const s of states) V.set(stateKey(s), 0);
+
+  let iters = 0;
+  let delta = Infinity;
+
+  while (delta > 1e-4 && iters < MAX_ITER) {
+    delta = 0;
+    iters++;
+    for (const s of states) {
+      const k = stateKey(s);
+      const AI = admissibleFn(s);
+      if (AI.size === 0) {
+        V.set(k, -999);
+        policy.set(k, null);
+        continue;
+      }
+      let best = -Infinity;
+      let bestAction = null;
+      for (const a of AI) {
+        const q = rewardFn(s, a) + GAMMA * transitionFn(s, a).reduce((sum, { state: s2, prob }) => {
+          return sum + prob * (V.get(stateKey(snapToGrid(s2))) ?? 0);
+        }, 0);
+        if (q > best) {
+          best = q;
+          bestAction = a;
+        }
+      }
+      const oldVal = V.get(k) || 0;
+      V.set(k, best);
+      policy.set(k, bestAction);
+      delta = Math.max(delta, Math.abs(best - oldVal));
+    }
+  }
+
+  return { V, policy, iters, converged: delta <= 1e-4 };
+}
+
+// ------------------------------------------------------------
+// 5. Simulator State & Orchestration
+// ------------------------------------------------------------
+let currentState = { severity: 'none', health: 'healthy', cpu: 50, latency: 300, replicas: 3, deploy_status: 'idle' };
+let activeIntentRule = null;
+let validatedSpec = null;
+let pendingCompiledRule = null;
+let ruleVersion = 0;
+let ruleHistory = [];
+let auditEntries = [];
+
+// Episode stepping state
+let stepEpisodeState = null;
+
+function getAdmissibleSet() {
+  if (!activeIntentRule) return baselineAvailable(currentState);
+  return effectiveAdmissibleSet(currentState, baselineAvailable, activeIntentRule);
+}
+
+function updateState() {
+  currentState = {
+    severity:      document.getElementById('f_severity').value,
+    health:        document.getElementById('f_health').value,
+    cpu:           parseInt(document.getElementById('f_cpu').value),
+    latency:       parseInt(document.getElementById('f_latency').value),
+    replicas:      parseInt(document.getElementById('f_replicas').value),
+    deploy_status: document.getElementById('f_deploy_status').value,
+  };
+  document.getElementById('v_severity').textContent      = currentState.severity;
+  document.getElementById('v_health').textContent        = currentState.health;
+  document.getElementById('v_cpu').textContent           = currentState.cpu;
+  document.getElementById('v_latency').textContent       = currentState.latency;
+  document.getElementById('v_replicas').textContent      = currentState.replicas;
+  document.getElementById('v_deploy_status').textContent = currentState.deploy_status;
+  renderAdmissibleSet();
+  if (planningConstrainedDone) renderQValues();
+}
+
+function loadScenario(preset) {
+  if (preset === 'sev1') {
+    document.getElementById('f_severity').value = 'sev1';
+    document.getElementById('f_health').value = 'degraded';
+    document.getElementById('f_cpu').value = 85;
+    document.getElementById('f_latency').value = 1200;
+    document.getElementById('f_replicas').value = 3;
+    document.getElementById('f_deploy_status').value = 'idle';
+  } else if (preset === 'highload') {
+    document.getElementById('f_severity').value = 'sev2';
+    document.getElementById('f_health').value = 'degraded';
+    document.getElementById('f_cpu').value = 95;
+    document.getElementById('f_latency').value = 2000;
+    document.getElementById('f_replicas').value = 2;
+    document.getElementById('f_deploy_status').value = 'idle';
+  } else if (preset === 'deploying') {
+    document.getElementById('f_severity').value = 'none';
+    document.getElementById('f_health').value = 'healthy';
+    document.getElementById('f_cpu').value = 40;
+    document.getElementById('f_latency').value = 200;
+    document.getElementById('f_replicas').value = 5;
+    document.getElementById('f_deploy_status').value = 'in_progress';
+  } else {
+    document.getElementById('f_severity').value = 'none';
+    document.getElementById('f_health').value = 'healthy';
+    document.getElementById('f_cpu').value = 30;
+    document.getElementById('f_latency').value = 150;
+    document.getElementById('f_replicas').value = 4;
+    document.getElementById('f_deploy_status').value = 'idle';
+  }
+  updateState();
+}
+
+function updateGamma() {
+  GAMMA = parseFloat(document.getElementById('f_gamma').value);
+  document.getElementById('v_gamma').textContent = GAMMA.toFixed(2);
+  planningConstrainedDone = false;
+  planningUnconstrainedDone = false;
+}
+
+function updateMaxIter() {
+  MAX_ITER = parseInt(document.getElementById('f_maxiter').value);
+  document.getElementById('v_maxiter').textContent = MAX_ITER;
+  planningConstrainedDone = false;
+  planningUnconstrainedDone = false;
+}
+
+function updateParserMode() {
+  const mode = document.getElementById('parserModeSelect').value;
+  const keyRow = document.getElementById('apiKeyRow');
+  const modelRow = document.getElementById('modelSelectRow');
+  const badge = document.getElementById('parserModeBadge');
+  const key = document.getElementById('apiKey').value.trim();
+
+  if (mode === 'anthropic') {
+    keyRow.style.display = '';
+    modelRow.style.display = '';
+    if (key) {
+      badge.textContent = 'Anthropic Claude (Live LLM)';
+      badge.style.color = 'var(--green)';
+      badge.style.borderColor = 'rgba(63, 185, 80, 0.3)';
+    } else {
+      badge.textContent = 'Anthropic (API Key Needed)';
+      badge.style.color = 'var(--amber)';
+      badge.style.borderColor = 'rgba(210, 153, 34, 0.3)';
+    }
+  } else {
+    keyRow.style.display = 'none';
+    modelRow.style.display = 'none';
+    badge.textContent = 'Local Grammar Parser (offline)';
+    badge.style.color = 'var(--blue)';
+    badge.style.borderColor = 'rgba(88, 166, 255, 0.3)';
+  }
+}
+
+function renderAdmissibleSet() {
+  const AI = getAdmissibleSet();
+  const A0 = baselineAvailable(currentState);
+  const pills = ACTIONS.map(a => {
+    if (!A0.has(a)) return `<span class="action-pill pill-unavailable">${a}</span>`;
+    if (AI.has(a)) return `<span class="action-pill pill-admissible">${a}</span>`;
+    return `<span class="action-pill pill-excluded">${a}</span>`;
+  }).join('');
+
+  document.getElementById('actionPills').innerHTML = pills;
+  document.getElementById('admissibleCount').textContent =
+    `|A₀(s)| = ${A0.size}   |A_I(s)| = ${AI.size}${activeIntentRule ? ' (filtered by rule v' + ruleVersion + ')' : ' (no active intent rule)'}`;
+}
+
+// ------------------------------------------------------------
+// 6. Pipeline: Parse → Validate → Compile → Feasibility → Activate
+// ------------------------------------------------------------
+function setPipelineStep(id, status, text) {
+  const el = document.getElementById(id);
+  el.className = 'step-status step-' + status;
+  el.textContent = text;
+}
+
+function resetPipeline() {
+  ['ps_parse', 'ps_validate', 'ps_compile', 'ps_feasibility', 'ps_activation'].forEach(id => setPipelineStep(id, 'pending', '—'));
+}
+
+async function parseAndCompileIntent() {
+  const instruction = document.getElementById('intentInput').value.trim();
+  if (!instruction) {
+    showMsg('parseMessages', 'error', 'Please enter a natural-language instruction.');
+    return;
+  }
+
+  const parserMode = document.getElementById('parserModeSelect').value;
+  const apiKey = document.getElementById('apiKey').value.trim();
+  const model = document.getElementById('claudeModel').value;
+
+  if (parserMode === 'anthropic' && !apiKey) {
+    showMsg('parseMessages', 'error', 'Anthropic API key required when Anthropic mode is selected. Enter key in Settings or switch to Local Grammar Parser.');
+    return;
+  }
+
+  resetPipeline();
+  clearMsg('parseMessages');
+  document.getElementById('parsedSpecSection').classList.add('hidden');
+  document.getElementById('activateBtn').disabled = true;
+  setStatus('HOLD');
+
+  // Step 1: LLM Parser (Slow timescale)
+  setPipelineStep('ps_parse', 'running', 'parsing…');
+  let parseResult;
+  try {
+    if (parserMode === 'anthropic') {
+      parseResult = await parseWithAnthropic(instruction, apiKey, model);
+    } else {
+      parseResult = localParseIntent(instruction);
+    }
+
+    if (!parseResult.success) {
+      throw new Error(parseResult.error);
+    }
+    setPipelineStep('ps_parse', 'ok', '✓ proposed');
+  } catch (e) {
+    setPipelineStep('ps_parse', 'error', '✗ rejected');
+    showMsg('parseMessages', 'error', `LLM Parser rejected: ${e.message}`);
+    setStatus('IDLE');
+    return;
+  }
+
+  document.getElementById('rawSpecDisplay').textContent = JSON.stringify(parseResult.raw, null, 2);
+
+  // Step 2: Deterministic Validator vx
+  setPipelineStep('ps_validate', 'running', 'grounding…');
+  const vr = validate(parseResult.raw, STATE_SCHEMA, ACTIONS);
+  if (!vr.valid) {
+    setPipelineStep('ps_validate', 'error', '✗ invalid');
+    showMsg('parseMessages', 'error', `Deterministic Validator rejected (field "${vr.field}"): ${vr.reason}`);
+    document.getElementById('parsedSpecSection').classList.remove('hidden');
+    setStatus('IDLE');
+    return;
+  }
+  setPipelineStep('ps_validate', 'ok', '✓ valid');
+  validatedSpec = vr.spec;
+  document.getElementById('validatedSpecDisplay').textContent = JSON.stringify(vr.spec, null, 2);
+
+  // Step 3: Deterministic Compiler c
+  setPipelineStep('ps_compile', 'running', 'compiling…');
+  const rule = compile(vr.spec, ACTIONS);
+  pendingCompiledRule = rule;
+  setPipelineStep('ps_compile', 'ok', '✓ compiled');
+
+  // Step 4: Feasibility Monitor (Paper Def 3.2)
+  setPipelineStep('ps_feasibility', 'running', 'checking…');
+  const states = enumerateStates();
+  const feas = checkFeasibility(states, rule);
+
+  if (!feas.feasible) {
+    setPipelineStep('ps_feasibility', 'error', `✗ ${feas.violations.length} infeasible`);
+    setPipelineStep('ps_activation', 'hold', '⚠ HOLD (infeasible)');
+    setStatus('HOLD');
+    showMsg('parseMessages', 'warn', `Feasibility violation: A_I(s) = ∅ in ${feas.violations.length} state(s). System enters HOLD. Revise instruction.`);
+    document.getElementById('parsedSpecSection').classList.remove('hidden');
+    document.getElementById('activateBtn').disabled = false;
+    document.getElementById('activateBtn').textContent = 'Force Activate (Override HOLD)';
+    document.getElementById('activateBtn').onclick = () => activateRuleWith(rule, instruction, 'override');
+    return;
+  }
+
+  setPipelineStep('ps_feasibility', 'ok', `✓ feasible (${states.length} states)`);
+  setPipelineStep('ps_activation', 'pending', 'ready to activate');
+  document.getElementById('parsedSpecSection').classList.remove('hidden');
+  document.getElementById('activateBtn').disabled = false;
+  document.getElementById('activateBtn').textContent = 'Compile & Activate Rule';
+  document.getElementById('activateBtn').onclick = () => activateRuleWith(rule, instruction, 'normal');
+  showMsg('parseMessages', 'ok', 'Specification validated and verified feasible across all states. Click "Compile & Activate Rule" to install.');
+}
+
+function activateRuleFromUI() {
+  if (pendingCompiledRule) {
+    activateRuleWith(pendingCompiledRule, document.getElementById('intentInput').value.trim(), 'normal');
+  }
+}
+
+function activateRuleWith(rule, instruction, mode) {
+  ruleVersion++;
+  activeIntentRule = rule;
+  const entry = {
+    version: ruleVersion,
+    instruction,
+    spec: validatedSpec,
+    activatedAt: new Date().toLocaleTimeString(),
+    mode,
+  };
+  ruleHistory.unshift(entry);
+
+  setPipelineStep('ps_activation', 'ok', `✓ v${ruleVersion} active`);
+  setStatus('ACTIVE');
+  showMsg('parseMessages', 'ok', `Rule v${ruleVersion} activated atomically. System status: ACTIVE.`);
+
+  document.getElementById('planBtn').disabled = false;
+  document.getElementById('runBtn').disabled = false;
+  document.getElementById('runUncBtn').disabled = false;
+  document.getElementById('stepBtn').disabled = false;
+
+  planningConstrainedDone = false;
+  planningUnconstrainedDone = false;
+  stepEpisodeState = null;
+
+  renderAdmissibleSet();
+  renderRuleHistory();
+}
+
+function rollbackToVersion(ver) {
+  const target = ruleHistory.find(r => r.version === ver);
+  if (!target) return;
+  activeIntentRule = compile(target.spec, ACTIONS);
+  ruleVersion = target.version;
+  validatedSpec = target.spec;
+  document.getElementById('intentInput').value = target.instruction;
+  setStatus('ACTIVE');
+  setPipelineStep('ps_activation', 'ok', `✓ rolled back to v${ver}`);
+  showMsg('parseMessages', 'info', `Rolled back to Rule v${ver}.`);
+  renderAdmissibleSet();
+  planningConstrainedDone = false;
+  planningUnconstrainedDone = false;
+  stepEpisodeState = null;
+}
+
+// ------------------------------------------------------------
+// 7. Step 2: Planning UI
+// ------------------------------------------------------------
+function runPlanning() {
+  if (!activeIntentRule) {
+    showMsg('planMessages', 'error', 'Activate a rule first.');
+    return;
+  }
+
+  showMsg('planMessages', 'info', '<span class="spinner"></span> Running value iteration over A_I(s) = A₀(s) ∩ I(s)…');
+  document.getElementById('planBtn').disabled = true;
+
+  setTimeout(() => {
+    const admConstrained = s => effectiveAdmissibleSet(s, baselineAvailable, activeIntentRule);
+    const resConstrained = runValueIterationFor(admConstrained);
+    V_constrained = resConstrained.V;
+    policy_constrained = resConstrained.policy;
+    planningConstrainedDone = true;
+
+    // Precompute unconstrained policy for comparison
+    const admUnconstrained = s => baselineAvailable(s);
+    const resUnconstrained = runValueIterationFor(admUnconstrained);
+    V_unconstrained = resUnconstrained.V;
+    policy_unconstrained = resUnconstrained.policy;
+    planningUnconstrainedDone = true;
+
+    allStatesList = enumerateStates();
+    document.getElementById('planBtn').disabled = false;
+    clearMsg('planMessages');
+
+    document.getElementById('planStats').textContent =
+      `Converged: ${resConstrained.converged} | Iterations: ${resConstrained.iters} | States: ${allStatesList.length} | γ = ${GAMMA}`;
+    document.getElementById('planningResults').classList.remove('hidden');
+
+    renderQValues();
+    renderVTable();
+  }, 40);
+}
+
+function renderQValues() {
+  if (!planningConstrainedDone) return;
+  const s = snapToGrid(currentState);
+  const A0 = baselineAvailable(s);
+  const AI = effectiveAdmissibleSet(s, baselineAvailable, activeIntentRule || (_ => new Set(ACTIONS)));
+
+  let html = '<tr><th>Action</th><th>Q*(s,a)</th><th>Status</th><th>Note</th></tr>';
+  const qs = {};
+  for (const a of ACTIONS) {
+    if (!A0.has(a)) {
+      qs[a] = { q: null, status: 'unavailable', note: 'Not physically possible in state s' };
+      continue;
+    }
+    if (!AI.has(a)) {
+      qs[a] = { q: null, status: 'excluded', note: 'Prohibited by intent rule I(s)' };
+      continue;
+    }
+    const q = rewardFn(s, a) + GAMMA * transitionFn(s, a).reduce((sum, { state: s2, prob }) => {
+      return sum + prob * (V_constrained.get(stateKey(snapToGrid(s2))) ?? 0);
+    }, 0);
+    qs[a] = { q, status: 'admissible', note: 'Admissible under A_I(s)' };
+  }
+
+  const validVals = Object.values(qs).filter(v => v.q !== null).map(v => v.q);
+  const bestVal = validVals.length ? Math.max(...validVals) : -Infinity;
+
+  for (const a of ACTIONS) {
+    const { q, status, note } = qs[a];
+    const isBest = q !== null && q === bestVal;
+    const cls = status === 'excluded' ? 'q-excluded' : status === 'unavailable' ? 'q-unavailable' : isBest ? 'q-best' : '';
+    const valStr = q !== null ? q.toFixed(3) : '—';
+    const noteBadge = isBest ? '<span style="color:var(--green);font-weight:700;">★ Optimal π*_I(s)</span>' : note;
+    html += `<tr class="${cls}"><td>${a}</td><td>${valStr}</td><td>${status}</td><td>${noteBadge}</td></tr>`;
+  }
+
+  document.getElementById('qTable').innerHTML = html;
+}
+
+function renderVTable() {
+  const sample = allStatesList.filter((_, i) => i % Math.floor(allStatesList.length / 10) === 0).slice(0, 10);
+  let html = '<tr><th>State</th><th>V*(s)</th><th>π*_I(s)</th></tr>';
+  for (const s of sample) {
+    const k = stateKey(s);
+    const v = V_constrained.get(k);
+    const p = policy_constrained.get(k);
+    const cls = v === -999 ? 'v-infeasible' : '';
+    html += `<tr class="${cls}">
+      <td style="font-size:10px;">${k}</td>
+      <td class="v-val">${v !== undefined && v !== -999 ? v.toFixed(2) : '—'}</td>
+      <td class="v-action">${p || '∅'}</td>
+    </tr>`;
+  }
+  document.getElementById('vTable').innerHTML = html;
+}
+
+// ------------------------------------------------------------
+// 8. Step 3: Runtime Gate & Episode Execution (Paper Alg 1)
+// ------------------------------------------------------------
+function runEpisode(unconstrained) {
+  if (!activeIntentRule) {
+    showMsg('parseMessages', 'error', 'Please activate an intent rule first.');
+    return;
+  }
+
+  // Ensure policies are calculated
+  if (!planningConstrainedDone) {
+    const res = runValueIterationFor(s => effectiveAdmissibleSet(s, baselineAvailable, activeIntentRule));
+    V_constrained = res.V;
+    policy_constrained = res.policy;
+    planningConstrainedDone = true;
+  }
+  if (!planningUnconstrainedDone) {
+    const res = runValueIterationFor(s => baselineAvailable(s));
+    V_unconstrained = res.V;
+    policy_unconstrained = res.policy;
+    planningUnconstrainedDone = true;
+  }
+
+  auditEntries = [];
+  document.getElementById('auditTrace').innerHTML = '';
+  document.getElementById('traceSummaryBar').style.display = 'flex';
+
+  const policyToUse = unconstrained ? policy_unconstrained : policy_constrained;
+  let s = snapToGrid(currentState);
+  let totalReturn = 0;
+  let interventions = 0;
+  let holds = 0;
+
+  for (let step = 0; step < 20; step++) {
+    const k = stateKey(s);
+    const AI = effectiveAdmissibleSet(s, baselineAvailable, activeIntentRule);
+
+    // Feasibility Monitor at runtime (Paper §4.3)
+    if (AI.size === 0) {
+      holds++;
+      addTrace({
+        step,
+        state: { ...s },
+        admissibleSet: [],
+        proposal: null,
+        executed: null,
+        reward: null,
+        event: 'HOLD — empty admissible set A_I(s) = ∅, escalation triggered',
+      });
+      break;
+    }
+
+    // Policy proposal
+    const proposal = policyToUse.get(k) || [...baselineAvailable(s)][0];
+
+    // Runtime Gate (Algorithm 1, Step 6)
+    const executed = AI.has(proposal) ? proposal : [...AI][0];
+    const isFiltered = proposal !== executed;
+    if (isFiltered) interventions++;
+
+    const r = rewardFn(s, executed);
+    totalReturn += Math.pow(GAMMA, step) * r;
+
+    addTrace({
+      step,
+      state: { ...s },
+      admissibleSet: [...AI],
+      proposal,
+      executed,
+      reward: r,
+      event: isFiltered
+        ? `GATE_FILTERED — proposal "${proposal}" ∉ A_I(s) → executed admissible "${executed}"`
+        : 'OK',
+    });
+
+    // Stochastic Transition
+    const transitions = transitionFn(s, executed);
+    const rand = Math.random();
+    let cumProb = 0;
+    let nextState = transitions[0].state;
+    for (const { state: s2, prob } of transitions) {
+      cumProb += prob;
+      if (rand <= cumProb) { nextState = s2; break; }
+    }
+    s = snapToGrid(nextState);
+
+    // Goal check
+    if (s.severity === 'none' && s.health === 'healthy' && s.deploy_status === 'idle') {
+      addTrace({
+        step: step + 1,
+        state: { ...s },
+        admissibleSet: [...effectiveAdmissibleSet(s, baselineAvailable, activeIntentRule)],
+        proposal: null,
+        executed: null,
+        reward: null,
+        event: 'TERMINAL — Goal state reached (Severity None, Healthy, Idle)',
+      });
+      break;
+    }
+  }
+
+  // Update summary bar
+  document.getElementById('ts_mode').textContent = unconstrained ? 'Unconstrained + Gate' : 'Constraint-Aware';
+  document.getElementById('ts_return').textContent = totalReturn.toFixed(3);
+  document.getElementById('ts_steps').textContent = auditEntries.length;
+  document.getElementById('ts_filtered').textContent = interventions;
+  document.getElementById('ts_holds').textContent = holds;
+}
+
+function stepEpisode() {
+  if (!activeIntentRule) return;
+  if (!planningConstrainedDone) {
+    const res = runValueIterationFor(s => effectiveAdmissibleSet(s, baselineAvailable, activeIntentRule));
+    V_constrained = res.V;
+    policy_constrained = res.policy;
+    planningConstrainedDone = true;
+  }
+
+  if (!stepEpisodeState) {
+    auditEntries = [];
+    document.getElementById('auditTrace').innerHTML = '';
+    document.getElementById('traceSummaryBar').style.display = 'flex';
+    stepEpisodeState = {
+      step: 0,
+      state: snapToGrid(currentState),
+      totalReturn: 0,
+      interventions: 0,
+      holds: 0,
+    };
+  }
+
+  const { step, state: s, totalReturn } = stepEpisodeState;
+  const k = stateKey(s);
+  const AI = effectiveAdmissibleSet(s, baselineAvailable, activeIntentRule);
+
+  if (AI.size === 0) {
+    addTrace({ step, state: { ...s }, admissibleSet: [], proposal: null, executed: null, reward: null, event: 'HOLD — A_I(s) = ∅' });
+    stepEpisodeState = null;
+    return;
+  }
+
+  const proposal = policy_constrained.get(k) || [...AI][0];
+  const executed = AI.has(proposal) ? proposal : [...AI][0];
+  const isFiltered = proposal !== executed;
+  const r = rewardFn(s, executed);
+  const newReturn = totalReturn + Math.pow(GAMMA, step) * r;
+
+  addTrace({
+    step,
+    state: { ...s },
+    admissibleSet: [...AI],
+    proposal,
+    executed,
+    reward: r,
+    event: isFiltered ? `GATE_FILTERED — "${proposal}" ∉ A_I(s) → "${executed}"` : 'OK',
+  });
+
+  const tr = transitionFn(s, executed);
+  const rand = Math.random();
+  let cp = 0;
+  let ns = tr[0].state;
+  for (const { state: s2, prob } of tr) {
+    cp += prob;
+    if (rand <= cp) { ns = s2; break; }
+  }
+  const nextSnap = snapToGrid(ns);
+
+  stepEpisodeState.step++;
+  stepEpisodeState.state = nextSnap;
+  stepEpisodeState.totalReturn = newReturn;
+  if (isFiltered) stepEpisodeState.interventions++;
+
+  document.getElementById('ts_mode').textContent = 'Interactive Stepping';
+  document.getElementById('ts_return').textContent = newReturn.toFixed(3);
+  document.getElementById('ts_steps').textContent = stepEpisodeState.step;
+  document.getElementById('ts_filtered').textContent = stepEpisodeState.interventions;
+
+  if (nextSnap.severity === 'none' && nextSnap.health === 'healthy' && nextSnap.deploy_status === 'idle') {
+    addTrace({ step: step + 1, state: { ...nextSnap }, admissibleSet: [...effectiveAdmissibleSet(nextSnap, baselineAvailable, activeIntentRule)], proposal: null, executed: null, reward: null, event: 'TERMINAL' });
+    stepEpisodeState = null;
+  }
+}
+
+function addTrace(entry) {
+  auditEntries.push(entry);
+  const el = document.getElementById('auditTrace');
+  let cls = 'ok';
+  if (entry.event.includes('GATE_FILTERED')) cls = 'filtered';
+  else if (entry.event.includes('HOLD')) cls = 'hold';
+  else if (entry.event.includes('TERMINAL')) cls = 'terminal';
+
+  const admStr = entry.admissibleSet && entry.admissibleSet.length ? entry.admissibleSet.join(', ') : '∅';
+  const stateStr = entry.state ? Object.entries(entry.state).map(([k, v]) => `${k}=${v}`).join(' · ') : '—';
+
+  const div = document.createElement('div');
+  div.className = 'trace-entry';
+  div.innerHTML = `
+    <div class="trace-step">t=${entry.step ?? 0}</div>
+    <div>
+      <div class="trace-event ${cls}">${entry.event}</div>
+      <div class="trace-detail">
+        state: ${stateStr}<br>
+        A_I(s): [${admStr}]  ·  proposal: <span style="color:var(--text);font-weight:600;">${entry.proposal || '—'}</span>  ·  executed: <span style="color:var(--blue);font-weight:600;">${entry.executed || '—'}</span>  ·  reward: ${entry.reward !== null ? entry.reward.toFixed(2) : '—'}
+      </div>
+    </div>`;
+  el.appendChild(div);
+  el.scrollTop = el.scrollHeight;
+}
+
+function clearTrace() {
+  auditEntries = [];
+  stepEpisodeState = null;
+  document.getElementById('auditTrace').innerHTML = '<div style="padding:14px;color:var(--text3);font-size:12px;">Trace cleared.</div>';
+  document.getElementById('traceSummaryBar').style.display = 'none';
+}
+
+// ------------------------------------------------------------
+// 9. Example 5.1 Interactive Comparison (Paper §5.1)
+// ------------------------------------------------------------
+function toggleExample51() {
+  const sec = document.getElementById('ex51Section');
+  if (sec.style.display === 'none') {
+    sec.style.display = '';
+    const gamma = 0.9;
+    const Q_unc_risky = 0 + gamma * 10;
+    const Q_unc_safe = 5;
+    const V_I_s1 = 1;
+    const Q_I_risky = 0 + gamma * V_I_s1;
+    const Q_I_safe = 5;
+
+    document.getElementById('ex51Grid').innerHTML = `
+      <div class="ex51-card">
+        <h4 style="color:var(--amber);">Unconstrained Planner + Runtime Gate</h4>
+        <div class="ex51-row"><span>Q_unc(s₀, Safe)</span><span>${Q_unc_safe.toFixed(1)}</span></div>
+        <div class="ex51-row"><span>Q_unc(s₀, Risky)</span><span style="color:var(--amber);font-weight:700;">${Q_unc_risky.toFixed(1)} ← selected</span></div>
+        <div class="ex51-row"><span>At s₁ (Deploy prohibited)</span><span>Gate intercepts → Recover</span></div>
+        <div class="ex51-row"><span>Actual return (0.9 × 1.0)</span><span style="color:var(--amber);">${(gamma * 1).toFixed(1)}</span></div>
+        <div class="ex51-return" style="color:var(--amber);">${(gamma * 1).toFixed(1)}</div>
+      </div>
+      <div class="ex51-card">
+        <h4 style="color:var(--green);">Constraint-Aware Planner</h4>
+        <div class="ex51-row"><span>V_I(s₁)</span><span>${V_I_s1.toFixed(1)} (only Recover admissible)</span></div>
+        <div class="ex51-row"><span>Q_I(s₀, Risky) = 0 + 0.9 × 1</span><span>${Q_I_risky.toFixed(1)}</span></div>
+        <div class="ex51-row"><span>Q_I(s₀, Safe)</span><span style="color:var(--green);font-weight:700;">${Q_I_safe.toFixed(1)} ← selected</span></div>
+        <div class="ex51-row"><span>Actual return</span><span style="color:var(--green);">${Q_I_safe.toFixed(1)}</span></div>
+        <div class="ex51-return" style="color:var(--green);">${Q_I_safe.toFixed(1)}</div>
+      </div>`;
+
+    document.getElementById('ex51Insight').innerHTML = `
+      <strong>Paper Section 5.1 Insight:</strong><br>
+      The runtime gate guarantees <em>local compliance</em> at s₁ by blocking Deploy. However, because the unconstrained planner was blind to the downstream prohibition, it assigned an inflated value of <strong>9.0</strong> to Risky at s₀. The constraint-aware planner uses <span style="font-family:var(--mono);">V*_I(s₁) = 1</span> during planning, correctly valuing Risky at <strong>0.9 &lt; 5.0</strong>, and chooses Safe at s₀.
+    `;
+    sec.scrollIntoView({ behavior: 'smooth' });
+  } else {
+    sec.style.display = 'none';
+  }
+}
+
+// ------------------------------------------------------------
+// 10. Rule History & Rollback UI
+// ------------------------------------------------------------
+function renderRuleHistory() {
+  if (ruleHistory.length === 0) {
+    document.getElementById('ruleHistory').innerHTML = '<div style="color:var(--text3);font-size:12px;">No rules activated yet.</div>';
+    return;
+  }
+  let html = ruleHistory.map(r => `
+    <div style="padding:10px;background:var(--bg);border:1px solid var(--border);border-radius:4px;margin-bottom:8px;font-size:11.5px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
+        <span style="font-family:var(--mono);color:var(--blue);font-weight:600;">Rule v${r.version} — ${r.activatedAt}</span>
+        <div>
+          ${r.version === ruleVersion ? '<span style="font-size:10px;padding:1px 5px;background:var(--green-dim);color:var(--green);border-radius:3px;">ACTIVE</span>' : `<button class="btn btn-sm btn-ghost" onclick="rollbackToVersion(${r.version})">Rollback</button>`}
+        </div>
+      </div>
+      <div style="color:var(--text);margin-bottom:4px;">"${r.instruction}"</div>
+      <div style="color:var(--text3);font-family:var(--mono);font-size:10.5px;">${r.spec?.prohibitions?.length || 0} prohibition rule(s) ${r.mode === 'override' ? '· ⚠ override mode' : ''}</div>
+    </div>`).join('');
+  document.getElementById('ruleHistory').innerHTML = html;
+}
+
+// ------------------------------------------------------------
+// 11. Presets and Helpers
+// ------------------------------------------------------------
+function loadExample(n) {
+  const examples = [
+    'Do not deploy while a Severity-1 production incident is active',
+    'Freeze all production deployments until further notice',
+    'Never scale in when CPU is above 70 percent or latency exceeds 800 milliseconds',
+    'Prohibit all actions across the system',
+    'Make the cloud operations faster and safer',
+  ];
+  document.getElementById('intentInput').value = examples[n - 1] || '';
+  if (n === 1) loadScenario('sev1');
+  else if (n === 3) loadScenario('highload');
+}
+
+function setStatus(s) {
+  const el = document.getElementById('statusPill');
+  el.className = `status-pill status-${s}`;
+  el.textContent = s;
+}
+
+function showMsg(id, type, html) {
+  document.getElementById(id).innerHTML = `<div class="msg msg-${type}">${html}</div>`;
+}
+
+function clearMsg(id) {
+  document.getElementById(id).innerHTML = '';
+}
+
+function switchTab(name) {
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+  const clickedTab = document.querySelector(`.tab[onclick="switchTab('${name}')"]`);
+  if (clickedTab) clickedTab.classList.add('active');
+  const targetContent = document.getElementById(`tab_${name}`);
+  if (targetContent) targetContent.classList.add('active');
+}
+
+// ------------------------------------------------------------
+// Init
+// ------------------------------------------------------------
+updateParserMode();
+updateState();
+</script>
+</body>
+</html>

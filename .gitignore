@@ -21,3 +21,6 @@ backend/**/__pycache__/
 frontend/node_modules/
 frontend/dist/
 results/
+
+# generated test report
+backend/report.html

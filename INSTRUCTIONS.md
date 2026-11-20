@@ -46,7 +46,7 @@ works offline. The LLM adapter has not been exercised against the live API in th
 
 1. **Parse** the instruction (local grammar or LLM). The output is a proposal.
 2. **Validate** against the schema: action and field names, operators, enum values, numeric ranges,
-   declared units (`latency > 1.2 s`), and ambiguity (non-integer values with no unit are rejected). Rejections are logged.
+   declared units (`latency > 1.2 s`), and ambiguity: a unit-bearing field (`cpu`, `latency`) without an explicit unit is rejected, integer or not. Rejections are logged.
 3. **Compile** the spec into a rule `I(s)` and evaluate it on all 2,160 grid states.
 4. **Feasibility**: if `A_I(s) = ∅` anywhere, the intent goes to HOLD. Activation requires an explicit,
    logged override.

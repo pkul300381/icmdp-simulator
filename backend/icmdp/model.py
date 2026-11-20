@@ -10,13 +10,22 @@ from __future__ import annotations
 
 from typing import Dict, List, NamedTuple, Tuple
 
+import os
+
 import numpy as np
 
 SEVERITY = ("none", "sev2", "sev1")
 HEALTH = ("healthy", "degraded", "critical")
 DEPLOY = ("idle", "in_progress")
 ACTIONS = ("Deploy", "Rollback", "Restart", "ScaleOut", "ScaleIn", "DoNothing")
-CPU_GRID = (20, 50, 70, 85, 95)
+def _cpu_grid_from_env():
+    """Default grid is the paper's; ICMDP_CPU_GRID overrides it for resolution sweeps (Campaign 5)."""
+    raw = os.environ.get("ICMDP_CPU_GRID", "20,50,70,85,95")
+    vals = [float(x) for x in raw.split(",")]
+    return tuple(int(v) if v.is_integer() else v for v in vals)
+
+
+CPU_GRID = _cpu_grid_from_env()
 LAT_GRID = (100, 300, 800, 2000)
 REP_GRID = (1, 2, 3, 5, 8, 10)
 GAMMA = 0.9

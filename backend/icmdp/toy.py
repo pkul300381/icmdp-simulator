@@ -70,7 +70,7 @@ def example51() -> Dict:
         "constraint_aware": {
             "Q": {f"{s}:{a}": q for (s, a), q in con["Q"].items()},
             "V_I_s1": con["V"]["s1"], "policy": con["policy"], "selected_at_s0": con["policy"]["s0"],
-            "return": 5.0,
+            "return": ret_con,
             "explanation": "Planner sees that Risky leads to a state where only Recover is admissible: Q_I(s0,Risky)=0.9 < 5.",
         },
     }

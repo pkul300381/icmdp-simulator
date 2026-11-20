@@ -14,6 +14,9 @@ def rule_for(text):
 def test_validator_range_units_ambiguity():
     assert not I.validate({"prohibitions": [{"action": "ScaleIn", "condition": "cpu > 150"}]}).valid
     assert not I.validate({"prohibitions": [{"action": "ScaleIn", "condition": "latency > 1.2"}]}).valid
+    assert not I.validate({"prohibitions": [{"action": "ScaleIn", "condition": "latency > 2"}]}).valid
+    assert not I.validate({"prohibitions": [{"action": "ScaleIn", "condition": "cpu > 70"}]}).valid
+    assert I.validate({"prohibitions": [{"action": "ScaleIn", "condition": "cpu > 70 percent"}]}).valid
     r = I.validate({"prohibitions": [{"action": "ScaleIn", "condition": "latency > 1.2 s"}]})
     assert r.valid and r.spec.prohibitions[0].cond.value == 1200
     r = I.validate({"prohibitions": [{"action": "ScaleIn", "condition": "cpu > 0.7 fraction"}]})
@@ -25,7 +28,7 @@ def test_validator_range_units_ambiguity():
 
 def test_local_parser_operator_direction():
     raw = I.local_parse("Never scale in when CPU is below 40 percent")["raw"]
-    assert raw["prohibitions"][0]["condition"] == "cpu < 40"
+    assert raw["prohibitions"][0]["condition"] == "cpu < 40 percent"
 
 
 def test_gate_uses_raw_state():
@@ -41,6 +44,7 @@ def test_example_v1_reproduces_paper():
     assert r["unconstrained"]["selected_at_s0"] == "Risky"
     assert abs(r["unconstrained"]["return_with_gate"] - 0.9) < 1e-9
     assert abs(r["constraint_aware"]["V_I_s1"] - 1) < 1e-9
+    assert abs(r["constraint_aware"]["return"] - 5.0) < 1e-9
     assert r["constraint_aware"]["selected_at_s0"] == "Safe"
 
 
@@ -108,3 +112,13 @@ def test_freeze_update_stale_filter_fails_fix_holds():
     assert by["F3_stale_policy_no_filter_after_switch"]["violations_per_100_steps"] > 0
     for arm in ("F2_stale_policy_with_new_filter", "F4_reoptimised_with_filter", "F5_cmdp_resolve_no_filter"):
         assert by[arm]["violations_per_100_steps"] == 0, arm
+
+
+def test_health_rule_parses_and_excludes_deploy_only_when_critical():
+    raw = I.local_parse("Do not deploy while health is critical")["raw"]
+    rule = I.compile_spec(I.validate(raw))
+    crit = State("none", "critical", 50.0, 300.0, 3, "idle")
+    healthy = State("none", "healthy", 50.0, 300.0, 3, "idle")
+    assert "Deploy" not in rule.permitted(crit)
+    assert "Deploy" in rule.permitted(healthy)
+    assert I.PRESET_INSTRUCTIONS["healthCritical"] == "Do not deploy while health is critical"

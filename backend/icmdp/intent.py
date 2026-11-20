@@ -32,6 +32,8 @@ UNIT_CONVERSIONS = {
 }
 NUMERIC_LITERAL = re.compile(r"^[-+]?(\d+\.?\d*|\.\d+)([eE][-+]?\d+)?$")
 OP_ORDER = ("<=", ">=", "!=", "<", ">", "=")
+# Unit the local parser attaches to each unit-bearing field (the validator requires one).
+UNIT_TOKEN = {"cpu": " percent", "latency": " ms"}
 
 
 class EnforcementFailure(Exception):
@@ -175,14 +177,14 @@ def _atom_checked(fld: str, op: str, value: Any, unit: Optional[str], idx: int) 
     num = float(literal)
     table = UNIT_CONVERSIONS.get(fdef.get("unit", ""))
     if table is not None:
+        # Paper Sec. IV-B: ambiguity is a rejection, never a silent default. Every unit-bearing
+        # field needs an explicit unit, including integers ("latency > 2" could mean ms or s).
         if unit is None:
-            if not float(num).is_integer():
-                raise _Reject(fld, f'rule {idx}: ambiguous magnitude {literal} for "{fld}". '
-                                   f'State the unit explicitly ({", ".join(table)}).')
-        else:
-            if unit not in table:
-                raise _Reject(fld, f'rule {idx}: unknown unit "{unit}" for "{fld}". Accepted: {", ".join(table)}.')
-            num = num * table[unit]
+            raise _Reject(fld, f'rule {idx}: "{fld}" needs an explicit unit ({", ".join(table)}); '
+                               f'"{literal}" alone is ambiguous.')
+        if unit not in table:
+            raise _Reject(fld, f'rule {idx}: unknown unit "{unit}" for "{fld}". Accepted: {", ".join(table)}.')
+        num = num * table[unit]
     elif unit is not None:
         raise _Reject(fld, f'rule {idx}: field "{fld}" has no unit conversions; "{unit}" rejected.')
 
@@ -272,7 +274,17 @@ PRESET_INSTRUCTIONS = {
     "freeze": "Freeze all production deployments until further notice",
     "cpuScaleIn": "Never scale in when CPU is above 70 percent",
     "overTight": "Prohibit every action whenever CPU is non-negative",
+    "healthCritical": "Do not deploy while health is critical",
 }
+
+
+# Spoken forms of action names: "scale in" / "scale-in" / "scalein" -> ScaleIn, etc.
+_ACTION_PATTERNS = {a: re.compile(r"\bscale[\s-]?" + a[5:].lower() + r"\b") if a.startswith("Scale")
+                    else re.compile(r"\b" + re.escape(a.lower()) + r"\b") for a in ACTIONS}
+
+
+def _actions_mentioned(norm: str) -> List[str]:
+    return [a for a in ACTIONS if _ACTION_PATTERNS[a].search(norm)]
 
 
 def local_parse(instruction: str) -> Dict[str, Any]:
@@ -285,30 +297,38 @@ def local_parse(instruction: str) -> Dict[str, Any]:
     if "freeze" in norm and "deploy" in norm:
         return {"raw": {"prohibitions": [{"action": "Deploy", "condition": {"or": [
             "severity = none", "severity = sev2", "severity = sev1"]}}]}}
+    # Health condition, e.g. "Do not deploy while health is critical" -> health = critical
+    hm = re.search(r"\bhealth\b\s*(?:is|=|==)?\s*(healthy|degraded|critical)\b", norm)
+    if hm:
+        for action in _actions_mentioned(norm):
+            return {"raw": {"prohibitions": [{"action": action, "condition": f"health = {hm.group(1)}"}]}}
     if "scale" in norm and ("in" in norm.split() or "down" in norm) and ("cpu" in norm or "latency" in norm):
-        m = re.search(r"cpu[^0-9]*(\d+)", norm)
+        m = re.search(r"(cpu|latency)[^0-9]*(\d+)", norm)
         if m:
+            fld, num = m.group(1), m.group(2)
             op = "<" if any(w in norm for w in ("below", "under", "less")) else ">"
-            return {"raw": {"prohibitions": [{"action": "ScaleIn", "condition": f"cpu {op} {m.group(1)}"}]}}
-        return {"raw": {"prohibitions": [{"action": "ScaleIn", "condition": {"or": ["cpu > 70", "latency > 800"]}}]}}
+            return {"raw": {"prohibitions": [{"action": "ScaleIn", "condition": f"{fld} {op} {num}{UNIT_TOKEN[fld]}"}]}}
+        # No threshold named: ask rather than guess one (no silent defaults, Paper Sec. IV-B).
+        return {"error": "Name the threshold, e.g. \"CPU above 70 percent\" or \"latency above 800 ms\"."}
     if any(p in norm for p in ("prohibit every", "prohibit all", "block everything")):
-        return {"raw": {"prohibitions": [{"action": a, "condition": "cpu >= 0"} for a in ACTIONS]}}
-    for action in ACTIONS:
-        if action.lower() in norm:
-            m = re.search(r"(cpu|latency|replicas)\D*(\d+)", norm)
-            if m:
-                op = ">" if any(w in norm for w in ("above", "exceed", "greater", "over")) else "<"
-                return {"raw": {"prohibitions": [{"action": action, "condition": f"{m.group(1)} {op} {m.group(2)}"}]}}
+        return {"raw": {"prohibitions": [{"action": a, "condition": "cpu >= 0 percent"} for a in ACTIONS]}}
+    for action in _actions_mentioned(norm):
+        m = re.search(r"(cpu|latency|replicas)\D*(\d+)", norm)
+        if m:
+            op = ">" if any(w in norm for w in ("above", "exceed", "greater", "over")) else "<"
+            unit = UNIT_TOKEN.get(m.group(1), "")
+            return {"raw": {"prohibitions": [{"action": action, "condition": f"{m.group(1)} {op} {m.group(2)}{unit}"}]}}
     return {"error": "Could not parse locally. Use a preset, or configure the LLM parser."}
 
 
 LLM_SYSTEM_PROMPT = """You translate an operations instruction into a JSON specification. You only propose;
 a deterministic validator decides. Output ONLY JSON.
 Actions: {actions}
-Fields: severity (none, sev2, sev1); health (healthy, degraded, critical); cpu (percent 0-100);
-latency (ms 0-5000); replicas (integer 1-10); deploy_status (idle, in_progress).
+Fields: severity (none, sev2, sev1); health (healthy, degraded, critical); cpu (percent 0-100, always
+write the unit, e.g. "cpu > 70 percent"); latency (ms 0-5000, always write the unit, e.g. "latency > 1.2 s");
+replicas (integer 1-10); deploy_status (idle, in_progress).
 Format: {{"prohibitions":[{{"action":"<Action>","condition":<cond>}}]}}
-cond is "field op value" (optionally with a unit token, e.g. "latency > 1.2 s"), or
+cond is "field op value unit" (the unit is required for cpu and latency), or
 {{"not":cond}}, {{"and":[cond,...]}}, {{"or":[cond,...]}}. Operators: enum = !=; numbers = = != < <= > >=.
 A prohibition with a TRUE condition excludes that action in that state.
 If the instruction is ambiguous or references unknown fields/actions, output {{"error":"reason"}}."""

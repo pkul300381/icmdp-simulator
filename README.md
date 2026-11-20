@@ -8,8 +8,11 @@ See [INSTRUCTIONS.md](INSTRUCTIONS.md) for the architecture, protocols, API, and
 Quick start:
 
 cd ~/ai-workspace/icmdp-simulator/backend
+
 pip3 install -r requirements.txt
+
 python3 -m pytest -q tests
+
 python3 -m pytest -q tests --html=report.html --self-contained-html
 
 ```bash

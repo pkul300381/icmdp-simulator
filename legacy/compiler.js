@@ -132,10 +132,26 @@ function validateAtom(str, schema, ruleIdx) {
   if (!matched) {
     return { valid: false, reason: `Rule ${ruleIdx}: cannot parse atom "${str}". Expected "field op value".`, field: 'condition' };
   }
+  // Optional trailing unit token: "latency > 1.2 s"
+  const parts = matched.value.split(/\s+/).filter(Boolean);
+  if (parts.length > 2) {
+    return { valid: false, reason: `Rule ${ruleIdx}: cannot parse value "${matched.value}" in atom "${str}".`, field: 'condition' };
+  }
+  matched.value = parts[0] ?? '';
+  if (parts[1] !== undefined) matched.unit = parts[1];
   return validateAtomObj(matched, schema, ruleIdx);
 }
 
-function validateAtomObj({ field, op, value }, schema, ruleIdx) {
+// Unit conversion to each numeric field's canonical unit (Paper §IV-B: "converts quantities to declared canonical units").
+// Multiplier maps the stated unit onto the canonical unit of the schema field.
+const UNIT_CONVERSIONS = {
+  percent: { percent: 1, '%': 1, fraction: 100 },
+  ms:      { ms: 1, s: 1000, seconds: 1000 },
+};
+
+const NUMERIC_LITERAL = /^[-+]?(\d+\.?\d*|\.\d+)([eE][-+]?\d+)?$/;
+
+function validateAtomObj({ field, op, value, unit }, schema, ruleIdx) {
   const fieldDef = schema[field];
   if (!fieldDef) {
     return { valid: false, reason: `Rule ${ruleIdx}: unknown field "${field}". Known: ${Object.keys(schema).join(', ')}.`, field };
@@ -144,19 +160,50 @@ function validateAtomObj({ field, op, value }, schema, ruleIdx) {
   if (!admittedOps.includes(op)) {
     return { valid: false, reason: `Rule ${ruleIdx}: operator "${op}" not admitted for ${fieldDef.type} field "${field}". Admitted: ${admittedOps.join(', ')}.`, field };
   }
-  // Type-check value
-  let parsedValue = value;
+
   if (fieldDef.type === 'enum') {
+    if (unit !== undefined) {
+      return { valid: false, reason: `Rule ${ruleIdx}: units do not apply to enum field "${field}".`, field };
+    }
     if (!fieldDef.values.includes(value)) {
       return { valid: false, reason: `Rule ${ruleIdx}: value "${value}" not in enum for "${field}". Valid: ${fieldDef.values.join(', ')}.`, field };
     }
-  } else if (fieldDef.type === 'number' || fieldDef.type === 'integer') {
-    parsedValue = Number(value);
-    if (isNaN(parsedValue)) {
-      return { valid: false, reason: `Rule ${ruleIdx}: value "${value}" is not numeric for field "${field}".`, field };
-    }
+    return { valid: true, ast: { type: 'atom', field, op, value } };
   }
-  return { valid: true, ast: { type: 'atom', field, op, value: parsedValue } };
+
+  // Numeric field: literal must parse as a number (Number('') === 0, so check the literal first)
+  const literal = String(value).trim();
+  if (!NUMERIC_LITERAL.test(literal)) {
+    return { valid: false, reason: `Rule ${ruleIdx}: value "${value}" is not numeric for field "${field}".`, field };
+  }
+  let num = Number(literal);
+
+  // Units: fields with a declared unit and more than one accepted unit must be stated explicitly
+  // when the literal is non-integer, otherwise the magnitude is ambiguous (e.g. 1.2 seconds vs 1.2 ms).
+  if (fieldDef.unit && UNIT_CONVERSIONS[fieldDef.unit]) {
+    const table = UNIT_CONVERSIONS[fieldDef.unit];
+    if (unit === undefined) {
+      if (!Number.isInteger(num)) {
+        return { valid: false, reason: `Rule ${ruleIdx}: ambiguous magnitude ${literal} for "${field}". State the unit explicitly (${Object.keys(table).join(', ')}).`, field };
+      }
+      num = num * table[fieldDef.unit];   // canonical unit name is the schema unit, factor 1
+    } else {
+      if (!(unit in table)) {
+        return { valid: false, reason: `Rule ${ruleIdx}: unknown unit "${unit}" for "${field}". Accepted: ${Object.keys(table).join(', ')}.`, field };
+      }
+      num = num * table[unit];
+    }
+  } else if (unit !== undefined) {
+    return { valid: false, reason: `Rule ${ruleIdx}: field "${field}" has no unit conversions; "${unit}" rejected.`, field };
+  }
+
+  if (fieldDef.type === 'integer' && !Number.isInteger(num)) {
+    return { valid: false, reason: `Rule ${ruleIdx}: "${field}" is an integer field; ${num} is not an integer.`, field };
+  }
+  if (num < fieldDef.min || num > fieldDef.max) {
+    return { valid: false, reason: `Rule ${ruleIdx}: value ${num} outside declared range [${fieldDef.min}, ${fieldDef.max}] for "${field}".`, field };
+  }
+  return { valid: true, ast: { type: 'atom', field, op, value: num } };
 }
 
 // ---------------------------------------------------------------------------

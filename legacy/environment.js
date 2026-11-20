@@ -1,11 +1,20 @@
 /**
  * environment.js
- * MDP Environment — Cloud-Operations Agent (Paper Example 3.1)
+ * MDP Environment — Cloud-Operations Agent (Paper Example III.1)
  *
  * State space S, action vocabulary A, baseline availability A₀(s),
  * transition model P(s'|s,a), reward function R(s,a), discount γ.
  *
- * Paper reference: Definition 2.1, Definition 3.1, Example 3.1
+ * Paper reference: Definition II.1, Definition III.1, Example III.1
+ *
+ * Dynamics revision (see INSTRUCTIONS.md, "Environment dynamics"):
+ *   - Deploy now enters deploy_status = in_progress (previously unreachable, which made
+ *     Rollback dead code in simulated episodes).
+ *   - An in-progress deployment completes with probability 0.5 under any action other
+ *     than Deploy or Rollback.
+ *   - Restart can clear an active incident (severity -> none) with probability 0.3.
+ *   Without the last two, Sev1 is absorbing under the Sev1 rule, so constrained and
+ *   unconstrained returns differ for an artefact of the model rather than the constraint.
  */
 
 'use strict';
@@ -28,7 +37,7 @@ const STATE_SCHEMA = {
 const ACTIONS = ['Deploy', 'Rollback', 'Restart', 'ScaleOut', 'ScaleIn', 'DoNothing'];
 
 // ---------------------------------------------------------------------------
-// Baseline availability A₀(s) — Paper Definition 3.1
+// Baseline availability A₀(s) — Paper Definition III.1
 // Actions physically executable in state s, regardless of user intent.
 // ---------------------------------------------------------------------------
 function baselineAvailable(s) {
@@ -41,7 +50,7 @@ function baselineAvailable(s) {
 }
 
 // ---------------------------------------------------------------------------
-// Reward function R(s, a) — Paper Definition 2.1
+// Reward function R(s, a) — Paper Definition II.1
 // Optimises service availability, latency, recovery, and infrastructure cost.
 // ---------------------------------------------------------------------------
 function reward(s, a) {
@@ -94,20 +103,15 @@ function enumerateStates() {
 }
 
 // ---------------------------------------------------------------------------
-// Transition model P(s'|s,a) — stochastic environment response
-// Returns array of { state, prob } pairs summing to 1.
+// Base transition model (before deployment-completion split)
 // ---------------------------------------------------------------------------
-function transition(s, a) {
-  // Deterministic next-state logic with stochastic noise
-  let next = { ...s };
-
+function transitionBase(s, a) {
   if (a === 'Deploy') {
-    next.deploy_status = 'in_progress';
-    // Deploy may improve or worsen health probabilistically
+    // Deploy starts a rollout; health/severity outcome drawn stochastically
     return [
-      { state: { ...next, health: 'healthy',  deploy_status: 'idle', severity: 'none' }, prob: 0.7 },
-      { state: { ...next, health: 'degraded', deploy_status: 'idle', severity: 'sev2' }, prob: 0.2 },
-      { state: { ...next, health: 'critical', deploy_status: 'idle', severity: 'sev1' }, prob: 0.1 },
+      { state: { ...s, health: 'healthy',  deploy_status: 'in_progress', severity: 'none' }, prob: 0.7 },
+      { state: { ...s, health: 'degraded', deploy_status: 'in_progress', severity: 'sev2' }, prob: 0.2 },
+      { state: { ...s, health: 'critical', deploy_status: 'in_progress', severity: 'sev1' }, prob: 0.1 },
     ];
   }
   if (a === 'Rollback') {
@@ -117,8 +121,16 @@ function transition(s, a) {
     ];
   }
   if (a === 'Restart') {
+    if (s.severity === 'none') {
+      return [
+        { state: { ...s, health: 'healthy', cpu: 30, latency: 150 }, prob: 0.75 },
+        { state: { ...s, health: 'degraded', cpu: 60, latency: 400 }, prob: 0.25 },
+      ];
+    }
+    // Incident present: restart may clear it
     return [
-      { state: { ...s, health: 'healthy', cpu: 30, latency: 150 }, prob: 0.75 },
+      { state: { ...s, severity: 'none', health: 'healthy', cpu: 30, latency: 150 }, prob: 0.3 },
+      { state: { ...s, health: 'healthy', cpu: 30, latency: 150 }, prob: 0.45 },
       { state: { ...s, health: 'degraded', cpu: 60, latency: 400 }, prob: 0.25 },
     ];
   }
@@ -139,6 +151,22 @@ function transition(s, a) {
 }
 
 // ---------------------------------------------------------------------------
+// Transition model P(s'|s,a) — returns array of { state, prob } summing to 1.
+// An in-progress deployment completes with prob 0.5 under any action other than
+// Deploy or Rollback (completion is modelled as a split of each outcome).
+// ---------------------------------------------------------------------------
+function transition(s, a) {
+  const base = transitionBase(s, a);
+  if (s.deploy_status !== 'in_progress' || a === 'Deploy' || a === 'Rollback') return base;
+  const out = [];
+  for (const { state, prob } of base) {
+    out.push({ state: { ...state, deploy_status: 'idle' },        prob: prob * 0.5 });
+    out.push({ state: { ...state, deploy_status: 'in_progress' }, prob: prob * 0.5 });
+  }
+  return out;
+}
+
+// ---------------------------------------------------------------------------
 // State key for lookup tables
 // ---------------------------------------------------------------------------
 function stateKey(s) {
@@ -146,7 +174,8 @@ function stateKey(s) {
 }
 
 // ---------------------------------------------------------------------------
-// Find closest enumerated state to an arbitrary state object
+// Find closest enumerated state to an arbitrary state object.
+// Planning approximation only: runtime enforcement evaluates the raw state.
 // ---------------------------------------------------------------------------
 function snapToGrid(s, states) {
   const cpuGrid     = [20, 50, 70, 85, 95];
@@ -165,7 +194,7 @@ function snapToGrid(s, states) {
   };
 }
 
-// Discount factor γ (Paper Definition 2.1)
+// Discount factor γ (Paper Definition II.1)
 const GAMMA = 0.9;
 
 if (typeof module !== 'undefined') {

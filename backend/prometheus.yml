@@ -1,0 +1,8 @@
+# Scrape the harness metrics (run the API on :8000).
+global:
+  scrape_interval: 15s
+scrape_configs:
+  - job_name: icmdp-harness
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["host.docker.internal:8000"]

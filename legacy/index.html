@@ -400,6 +400,7 @@
         <div>Steps: <span id="ts_steps">—</span></div>
         <div>Gate Interventions: <span id="ts_filtered" style="color:var(--amber);">0</span></div>
         <div>Holds: <span id="ts_holds" style="color:var(--red);">0</span></div>
+        <div>Violations: <span id="ts_violations" style="color:var(--red);">0</span></div>
       </div>
 
       <div class="trace-container" id="auditTrace">
@@ -891,11 +892,14 @@ function runEpisodeUI(unconstrained) {
   document.getElementById('traceSummaryBar').style.display = 'flex';
 
   const policyToUse = unconstrained ? policy_unconstrained : policy_constrained;
+  // Enforcement uses the RAW state; the snapped grid is only used for policy lookup.
   const epRes = runEpisode({
-    initialState: currentState,
+    initialState: { ...currentState },
     policy: policyToUse,
     V: unconstrained ? V_unconstrained : V_constrained,
-    admissibleFn: s => effectiveAdmissibleSet(s, baselineAvailable, activeEntry.rule),
+    baselineFn: baselineAvailable,
+    ruleAt: () => ({ rule: activeEntry.rule, version: activeEntry.version }),
+    gate: true,
     rewardFn: reward,
     transitionFn: transition,
     stateKeyFn: stateKey,
@@ -903,7 +907,7 @@ function runEpisodeUI(unconstrained) {
     states,
     gamma: GAMMA_VAL,
     maxSteps: 20,
-    ruleVersion: activeEntry.version,
+    isTerminal: null,
   });
 
   // Render audit trace
@@ -911,12 +915,12 @@ function runEpisodeUI(unconstrained) {
     addTraceUI(entry);
   }
 
-  const summary = lifecycle.auditTrace.summary();
-  document.getElementById('ts_mode').textContent = unconstrained ? 'Unconstrained + Gate' : 'Constraint-Aware';
+  document.getElementById('ts_mode').textContent = unconstrained ? 'Unconstrained + Gate' : 'Constraint-Aware + Gate';
   document.getElementById('ts_return').textContent = epRes.totalReturn.toFixed(3);
   document.getElementById('ts_steps').textContent = epRes.steps;
-  document.getElementById('ts_filtered').textContent = summary.filtered;
-  document.getElementById('ts_holds').textContent = summary.holds;
+  document.getElementById('ts_filtered').textContent = epRes.interventions;
+  document.getElementById('ts_holds').textContent = epRes.holds;
+  document.getElementById('ts_violations').textContent = epRes.violations;
 }
 
 function stepEpisodeUI() {
@@ -945,74 +949,57 @@ function stepEpisodeUI() {
     document.getElementById('traceSummaryBar').style.display = 'flex';
     stepEpisodeState = {
       step: 0,
-      state: snapToGrid(currentState, states),
+      state: { ...currentState },   // raw observed state
       totalReturn: 0,
       interventions: 0,
       holds: 0,
+      violations: 0,
     };
   }
 
-  const { step, state: s, totalReturn } = stepEpisodeState;
-  const k = stateKey(s);
-  const AI = effectiveAdmissibleSet(s, baselineAvailable, activeEntry.rule);
+  // One action-selection boundary through the same runEpisode used by the experiments
+  const res = runEpisode({
+    initialState: stepEpisodeState.state,
+    policy: policy_constrained,
+    V: V_constrained,
+    baselineFn: baselineAvailable,
+    ruleAt: () => ({ rule: activeEntry.rule, version: activeEntry.version }),
+    gate: true,
+    rewardFn: reward,
+    transitionFn: transition,
+    stateKeyFn: stateKey,
+    snapToGridFn: (s) => snapToGrid(s, states),
+    states,
+    gamma: GAMMA_VAL,
+    maxSteps: 1,
+    startStep: stepEpisodeState.step,
+    isTerminal: null,
+  });
 
-  if (AI.size === 0) {
-    const trEntry = { step, state: { ...s }, ruleVersion: activeEntry.version, admissibleSet: [], proposal: null, executed: null, reward: null, event: 'HOLD — A_I(s) = ∅' };
-    addTraceUI(trEntry);
-    stepEpisodeState = null;
-    return;
-  }
+  for (const entry of res.trace) addTraceUI(entry);
 
-  const proposal = policy_constrained.get(k) || [...AI][0];
-  const executed = AI.has(proposal) ? proposal : [...AI][0];
-  const isFiltered = proposal !== executed;
-  const r = reward(s, executed);
-  const newReturn = totalReturn + Math.pow(GAMMA_VAL, step) * r;
-
-  const trEntry = {
-    step,
-    state: { ...s },
-    ruleVersion: activeEntry.version,
-    admissibleSet: [...AI],
-    proposal,
-    executed,
-    reward: r,
-    event: isFiltered ? `GATE_FILTERED — "${proposal}" ∉ A_I(s) → "${executed}"` : 'OK',
-  };
-  addTraceUI(trEntry);
-
-  const tr = transition(s, executed);
-  const rand = Math.random();
-  let cp = 0;
-  let ns = tr[0].state;
-  for (const { state: s2, prob } of tr) {
-    cp += prob;
-    if (rand <= cp) { ns = s2; break; }
-  }
-  const nextSnap = snapToGrid(ns, states);
-
-  stepEpisodeState.step++;
-  stepEpisodeState.state = nextSnap;
-  stepEpisodeState.totalReturn = newReturn;
-  if (isFiltered) stepEpisodeState.interventions++;
+  stepEpisodeState.step += res.steps;
+  stepEpisodeState.state = res.finalState;
+  stepEpisodeState.totalReturn += res.totalReturn;
+  stepEpisodeState.interventions += res.interventions;
+  stepEpisodeState.holds += res.holds;
+  stepEpisodeState.violations += res.violations;
 
   document.getElementById('ts_mode').textContent = 'Interactive Stepping';
-  document.getElementById('ts_return').textContent = newReturn.toFixed(3);
+  document.getElementById('ts_return').textContent = stepEpisodeState.totalReturn.toFixed(3);
   document.getElementById('ts_steps').textContent = stepEpisodeState.step;
   document.getElementById('ts_filtered').textContent = stepEpisodeState.interventions;
+  document.getElementById('ts_holds').textContent = stepEpisodeState.holds;
+  document.getElementById('ts_violations').textContent = stepEpisodeState.violations;
 
-  if (nextSnap.severity === 'none' && nextSnap.health === 'healthy' && nextSnap.deploy_status === 'idle') {
-    const termEntry = { step: step + 1, state: { ...nextSnap }, ruleVersion: activeEntry.version, admissibleSet: [...effectiveAdmissibleSet(nextSnap, baselineAvailable, activeEntry.rule)], proposal: null, executed: null, reward: null, event: 'TERMINAL — goal state reached' };
-    addTraceUI(termEntry);
-    stepEpisodeState = null;
-  }
+  if (res.holds > 0) stepEpisodeState = null;   // stepping ends at a HOLD
 }
 
 function addTraceUI(entry) {
   const el = document.getElementById('auditTrace');
   let cls = 'ok';
   if (entry.event && entry.event.includes('GATE_FILTERED')) cls = 'filtered';
-  else if (entry.event && entry.event.includes('HOLD')) cls = 'hold';
+  else if (entry.event && (entry.event.includes('HOLD') || entry.event.includes('VIOLATION'))) cls = 'hold';
   else if (entry.event && entry.event.includes('TERMINAL')) cls = 'terminal';
 
   const admStr = entry.admissibleSet && entry.admissibleSet.length ? entry.admissibleSet.join(', ') : '∅';

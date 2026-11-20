@@ -82,7 +82,10 @@ class AuditTrace {
 //
 // Returns: { executed, filtered: bool, admissibleSet, event }
 // ---------------------------------------------------------------------------
-function runtimeGate(proposedAction, currentState, ruleStore, baselineAvailableFn, effectiveAdmissibleSetFn) {
+// rankFn(state, AI) -> action  chooses the replacement when the proposal is excluded.
+// Default (no rankFn) is deterministic alphabetical order; supply a value-based ranker
+// (e.g. argmax_{a in A_I(s)} Q(s,a)) for a fair runtime-only baseline (Paper Example V.1).
+function runtimeGate(proposedAction, currentState, ruleStore, baselineAvailableFn, effectiveAdmissibleSetFn, rankFn = null) {
   const activeRule = ruleStore.getActive();
 
   if (!activeRule) {
@@ -137,8 +140,8 @@ function runtimeGate(proposedAction, currentState, ruleStore, baselineAvailableF
     };
   }
 
-  // Proposal excluded — select first admissible (fallback)
-  const fallback = [...AI][0];
+  // Proposal excluded — select replacement from A_I(s) (value-based if rankFn supplied)
+  const fallback = rankFn ? rankFn(currentState, AI) : [...AI].sort()[0];
   return {
     executed: fallback,
     filtered: true,
